@@ -1,0 +1,28 @@
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Node / tooling
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Python / virtualenv
+.venv/
+__pycache__/
+
+# Logs & temp
+*.log
+logs/
+tmp/
+.env
+
+# Tests / fixtures outputs
+*.snap
+
+# Archive artifacts
+*.tar.gz
+*.zip

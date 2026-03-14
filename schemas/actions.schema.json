@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackcat.academy/schemas/actions.schema.json",
+  "title": "WriteActions",
+  "type": "object",
+  "properties": {
+    "SaveDraftPage": {
+      "type": "object",
+      "required": ["siteId", "pageId", "locale", "blocks"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "pageId": { "type": "string" },
+        "locale": { "type": "string" },
+        "blocks": { "type": "array" }
+      },
+      "additionalProperties": false
+    },
+    "PublishPageVersion": {
+      "type": "object",
+      "required": ["siteId", "pageId", "versionId", "manifestTx"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "pageId": { "type": "string" },
+        "versionId": { "type": "string" },
+        "manifestTx": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertRoute": {
+      "type": "object",
+      "required": ["siteId", "path", "target"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "path": { "type": "string" },
+        "target": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertProduct": {
+      "type": "object",
+      "required": ["siteId", "sku", "payload"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "sku": { "type": "string" },
+        "payload": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "AssignRole": {
+      "type": "object",
+      "required": ["actor", "subject", "role", "tenant"],
+      "properties": {
+        "actor": { "type": "string" },
+        "subject": { "type": "string" },
+        "role": { "type": "string" },
+        "tenant": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertProfile": {
+      "type": "object",
+      "required": ["subject", "profile"],
+      "properties": {
+        "subject": { "type": "string" },
+        "profile": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "GrantEntitlement": {
+      "type": "object",
+      "required": ["subject", "asset", "policy"],
+      "properties": {
+        "subject": { "type": "string" },
+        "asset": { "type": "string" },
+        "policy": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "description": "Action-specific payload schemas keyed by action name."
+}

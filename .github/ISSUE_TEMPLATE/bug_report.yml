@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible issue in blackcat-darkmesh-write
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include error messages or handler outputs.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps or payload that triggers the issue.
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Command / handler
+      placeholder: "SaveDraftPage / PublishPageVersion / UpsertRoute / ..."
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Schema or fixture reference (if applicable)
+      placeholder: "schemas/command-envelope.schema.json, fixtures/sample-commands"
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: This is not a security vulnerability (see SECURITY policy for those).
+          required: true

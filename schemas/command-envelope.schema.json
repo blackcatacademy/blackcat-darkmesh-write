@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackcat.academy/schemas/command-envelope.schema.json",
+  "title": "CommandEnvelope",
+  "type": "object",
+  "required": [
+    "action",
+    "requestId",
+    "actor",
+    "tenant",
+    "timestamp",
+    "nonce",
+    "signatureRef",
+    "payload"
+  ],
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "Command action name (SaveDraftPage, PublishPageVersion, UpsertRoute, UpsertProduct, AssignRole, UpsertProfile, GrantEntitlement)."
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "description": "Idempotency key; must be unique per successful command."
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expectedVersion": {
+      "type": "string",
+      "description": "Optimistic concurrency guard; optional for purely append-only actions."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "signatureRef": {
+      "type": "string",
+      "description": "Reference to signature or capability proof."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Action-specific payload validated by action schema."
+    }
+  },
+  "additionalProperties": false
+}
