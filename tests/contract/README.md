@@ -1,5 +1,8 @@
-# Contract tests (placeholder)
+# Contract tests
 
-Goals:
-- Validate command envelopes against schemas.
-- Assert deterministic outcomes for canonical sample commands.
+Run locally:
+```
+LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/verify/contracts.lua
+```
+
+The script checks envelope validation, idempotency replay, version conflict, and unknown-action handling for the write router.

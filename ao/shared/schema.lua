@@ -3,14 +3,98 @@
 
 local Schema = {}
 
+local has_cjson, cjson = pcall(require, "cjson")
+local function simple_decode(str)
+  local pos = 1
+  local function skip_ws()
+    local _, np = str:find("^[ \n\r\t]*", pos)
+    pos = (np or pos - 1) + 1
+  end
+  local function parse_value()
+    skip_ws()
+    local ch = str:sub(pos, pos)
+    if ch == '"' then
+      pos = pos + 1
+      local start = pos
+      while pos <= #str do
+        local c = str:sub(pos, pos)
+        if c == '"' then
+          local val = str:sub(start, pos - 1)
+          pos = pos + 1
+          return val
+        end
+        pos = pos + 1
+      end
+    elseif ch == "{" then
+      pos = pos + 1
+      local obj = {}
+      skip_ws()
+      if str:sub(pos, pos) == "}" then pos = pos + 1; return obj end
+      while true do
+        skip_ws()
+        local key = parse_value()
+        skip_ws()
+        if str:sub(pos, pos) ~= ":" then return nil end
+        pos = pos + 1
+        local val = parse_value()
+        obj[key] = val
+        skip_ws()
+        local sep = str:sub(pos, pos)
+        pos = pos + 1
+        if sep == "}" then break end
+        if sep ~= "," then return nil end
+      end
+      return obj
+    elseif ch == "[" then
+      pos = pos + 1
+      local arr = {}
+      skip_ws()
+      if str:sub(pos, pos) == "]" then pos = pos + 1; return arr end
+      while true do
+        local val = parse_value()
+        table.insert(arr, val)
+        skip_ws()
+        local sep = str:sub(pos, pos)
+        pos = pos + 1
+        if sep == "]" then break end
+        if sep ~= "," then return nil end
+      end
+      return arr
+    else
+      local lit = str:match("^[%w%.%-]+", pos)
+      if not lit then return nil end
+      pos = pos + #lit
+      if lit == "true" then return true end
+      if lit == "false" then return false end
+      if lit == "null" then return nil end
+      local num = tonumber(lit)
+      return num
+    end
+  end
+  local ok, val = pcall(parse_value)
+  if not ok then return nil end
+  return val
+end
+
+local function decode_json(str)
+  if has_cjson then
+    return cjson.decode(str)
+  end
+  local ok, dkjson = pcall(require, "dkjson")
+  if ok then
+    local obj, pos, err = dkjson.decode(str, 1, nil)
+    if err then return nil end
+    return obj
+  end
+  return simple_decode(str)
+end
+
 local function read_json(path)
   local f = io.open(path, "r")
   if not f then return nil end
   local content = f:read("*a")
   f:close()
-  local ok, parsed = pcall(require("cjson").decode, content)
-  if ok then return parsed end
-  return nil
+  return decode_json(content)
 end
 
 local ROOT = (... and (...):match("^(.*)%.schema$")) or ""
@@ -121,5 +205,10 @@ function Schema.validate_action(action, payload)
   end
   return validate(payload or {}, action_schema)
 end
+
+Schema._debug = {
+  envelope = ENVELOPE,
+  actions = ACTIONS,
+}
 
 return Schema

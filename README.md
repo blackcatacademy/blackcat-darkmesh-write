@@ -34,6 +34,7 @@ tests/             # contract, conflict, and security tests
 ## Development
 - Prereqs: `lua5.4` (or `luac`) and `python3`.
 - Static checks: `scripts/verify/preflight.sh` (JSON schema validation + Lua syntax).
+- Contract smoke tests: `LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/verify/contracts.lua` (or set `RUN_CONTRACTS=1` to run during preflight).
 - Branches: `main` (releasable), `develop` (integration), `feature/*`, `adr/*`, `release/*`.
 - Message contracts and schemas are public API; prefer additive changes over breaking ones.
 
