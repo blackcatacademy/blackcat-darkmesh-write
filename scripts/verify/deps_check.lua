@@ -1,0 +1,23 @@
+-- Dependency check for write process
+local deps = {
+  { name = "cjson", mod = "cjson" },
+  { name = "dkjson", mod = "dkjson", optional = true },
+  { name = "luv", mod = "luv" },
+  { name = "lsqlite3", mod = "lsqlite3" },
+  { name = "openssl", mod = "openssl" },
+  { name = "sodium", mod = "sodium", optional = true },
+}
+
+local ok_all = true
+for _, d in ipairs(deps) do
+  local ok = pcall(require, d.mod)
+  if ok then
+    io.stdout:write(string.format("%s: ok\n", d.name))
+  else
+    local status = d.optional and "missing (optional)" or "missing"
+    io.stdout:write(string.format("%s: %s\n", d.name, status))
+    if not d.optional then ok_all = false end
+  end
+end
+
+if not ok_all then os.exit(1) end

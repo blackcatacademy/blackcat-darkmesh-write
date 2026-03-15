@@ -56,4 +56,15 @@ function Crypto.verify_hmac_sha256(message, secret, signature_hex)
   return false, "hmac_not_available"
 end
 
+function Crypto.hmac_sha256_hex(message, secret)
+  if openssl and openssl.hmac then
+    local raw = openssl.hmac.digest("sha256", message, secret, true)
+    return (openssl.hex and openssl.hex(raw)) or raw:gsub(".", function(c) return string.format("%02x", string.byte(c)) end)
+  end
+  if sodium and sodium.crypto_auth then
+    return sodium.to_hex(sodium.crypto_auth(message, secret))
+  end
+  return nil
+end
+
 return Crypto

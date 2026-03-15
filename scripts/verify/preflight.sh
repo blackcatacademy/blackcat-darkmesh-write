@@ -47,6 +47,10 @@ echo "[verify] done"
 
 # optional contract smoke tests
 if command -v lua5.4 >/dev/null 2>&1; then
+  if [ "${RUN_DEPS_CHECK:-0}" -eq 1 ]; then
+    echo "[verify] deps check"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/deps_check.lua"
+  fi
   if [ "${RUN_CONTRACTS:-1}" -eq 1 ]; then
     echo "[verify] contract smoke tests"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/contracts.lua"

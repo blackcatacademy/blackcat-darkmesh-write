@@ -22,4 +22,5 @@ jobs:
       - name: Preflight (schemas + Lua syntax + fixtures)
         env:
           RUN_BATCH: 1
+          RUN_DEPS_CHECK: 1
         run: scripts/verify/preflight.sh

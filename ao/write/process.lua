@@ -6,8 +6,10 @@ local idem = require("ao.shared.idempotency")
 local audit = require("ao.shared.audit")
 local storage = require("ao.shared.storage")
 local bridge = require("ao.shared.bridge")
+local crypto = require("ao.shared.crypto")
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local WAL_PATH = os.getenv("WRITE_WAL_PATH")
+local OUTBOX_HMAC_SECRET = os.getenv("OUTBOX_HMAC_SECRET")
 
 local M = {}
 
@@ -65,15 +67,20 @@ function handlers.PublishPageVersion(cmd)
     return err(cmd.requestId, "VERSION_CONFLICT", "expectedVersion mismatch", { current = state.versions[siteId] })
   end
   state.versions[siteId] = cmd.payload.versionId
-  table.insert(outbox, {
+  local ev = {
     type = "PublishPageVersion",
     siteId = siteId,
     pageId = cmd.payload.pageId,
     versionId = cmd.payload.versionId,
     manifestTx = cmd.payload.manifestTx,
     requestId = cmd.requestId,
-  })
-  storage.append("outbox", outbox[#outbox])
+  }
+  if OUTBOX_HMAC_SECRET then
+    local msg = (cmd.payload.siteId or "") .. "|" .. (cmd.payload.pageId or "") .. "|" .. (cmd.payload.versionId or "")
+    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
+  end
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
   bridge.forward_event(outbox[#outbox]) -- best-effort
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
@@ -176,14 +183,19 @@ function handlers.UpsertOrderStatus(cmd)
 end
 
 function handlers.IssueRefund(cmd)
-  table.insert(outbox, {
+  local ev = {
     type = "IssueRefund",
     orderId = cmd.payload.orderId,
     amount = cmd.payload.amount,
     currency = cmd.payload.currency,
     requestId = cmd.requestId,
-  })
-  storage.append("outbox", outbox[#outbox])
+  }
+  if OUTBOX_HMAC_SECRET then
+    local msg = (cmd.payload.orderId or "") .. "|" .. tostring(cmd.payload.amount or "") .. "|" .. (cmd.payload.currency or "")
+    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
+  end
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
   bridge.forward_event(outbox[#outbox])
   return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount })
