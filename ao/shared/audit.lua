@@ -1,10 +1,15 @@
--- Append-only audit helpers (placeholder).
+-- Append-only audit helpers (in-memory for now).
 
 local Audit = {}
+local records = {}
 
 function Audit.append(record)
-  -- TODO: write audit record into AO state
+  table.insert(records, record)
   return true
+end
+
+function Audit.all()
+  return records
 end
 
 return Audit

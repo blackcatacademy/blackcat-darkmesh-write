@@ -1,15 +1,15 @@
--- Schema and size validation stubs.
+-- Schema validation helpers.
+
+local schema = require("ao.shared.schema")
 
 local Validation = {}
 
 function Validation.validate_envelope(command)
-  -- TODO: integrate JSON schema validation for command envelopes
-  return true
+  return schema.validate_envelope(command)
 end
 
 function Validation.validate_action(action, payload)
-  -- TODO: integrate action-specific schema validation
-  return true
+  return schema.validate_action(action, payload)
 end
 
 return Validation
