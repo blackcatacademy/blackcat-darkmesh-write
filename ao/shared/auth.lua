@@ -1,6 +1,7 @@
 -- Minimal auth and policy checks; fail-closed if requested.
 
 local Auth = {}
+local crypto = require("ao.shared.crypto")
 
 local function env_bool(name)
   if _G[name] == "1" then return true end
@@ -69,6 +70,25 @@ function Auth.verify_signature(command)
   end
   if flag("WRITE_REQUIRE_SIGNATURE", "require_sig") then
     return false, "missing_signature"
+  end
+  return true
+end
+
+-- Optional: detached signature check (ed25519 or HMAC) when env set.
+-- Env:
+--  WRITE_SIG_TYPE=ed25519|hmac
+--  WRITE_SIG_PUBLIC=/path/to/pubkey (ed25519)
+--  WRITE_SIG_SECRET=... (hmac)
+function Auth.verify_detached(message, signature_hex)
+  local sig_type = os.getenv("WRITE_SIG_TYPE") or "none"
+  if sig_type == "ed25519" then
+    local pub = os.getenv("WRITE_SIG_PUBLIC")
+    if not pub then return false, "missing_public_key" end
+    return crypto.verify_ed25519(message, signature_hex, pub)
+  elseif sig_type == "hmac" then
+    local secret = os.getenv("WRITE_SIG_SECRET")
+    if not secret then return false, "missing_secret" end
+    return crypto.verify_hmac_sha256(message, secret, signature_hex)
   end
   return true
 end

@@ -111,6 +111,13 @@ function M.route(command)
   if not ok_sig then
     return err(command.requestId, "UNAUTHORIZED", sig_err or "signature failed")
   end
+  if command.signature and (command.action or command.Action) then
+    local message = (command.action or command.Action) .. "|" .. (command.tenant or "") .. "|" .. (command.requestId or command["Request-Id"] or "")
+    local ok_det, det_err = auth.verify_detached(message, command.signature)
+    if not ok_det then
+      return err(command.requestId, "UNAUTHORIZED", det_err or "detached signature failed")
+    end
+  end
 
   local ok_policy, pol_err = auth.check_policy(command, nil)
   if not ok_policy then
