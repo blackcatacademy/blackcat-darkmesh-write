@@ -74,6 +74,10 @@ local state = {
   payment_disputes = {}, -- paymentId -> { status, reason, evidence }
   sessions = {},      -- sessionId -> { sub, tenant, role, exp, device }
   subscriptions = {}, -- subscriptionId -> { customerId, planId, status, meta }
+  workflows = {},     -- contentKey -> { status, reviewers, history, scheduledAt, expiresAt }
+  locks = {},         -- contentKey -> { owner, expiresAt }
+  comments = {},      -- contentKey -> list of { author, text, ts }
+  scheduled = {},     -- list of { contentKey, siteId, pageId, versionId, publishAt }
 }
 
 -- load persisted carts if available
@@ -105,6 +109,14 @@ local handlers = {}
 local role_policy = {
   ProviderShippingWebhook = { "support", "admin", "catalog-admin" },
   AddDisputeEvidence = { "support", "admin" },
+  SubmitForReview = { "editor", "admin", "publisher" },
+  ApproveContent = { "publisher", "admin" },
+  RequestChanges = { "publisher", "admin" },
+  SchedulePublish = { "publisher", "admin" },
+  RunScheduledPublishes = { "publisher", "admin" },
+  LockContent = { "editor", "publisher", "admin" },
+  UnlockContent = { "editor", "publisher", "admin" },
+  AddContentComment = { "editor", "publisher", "admin" },
 }
 
 local function b64url(x)
@@ -241,6 +253,10 @@ function handlers.SaveDraftPage(cmd)
     blocks = cmd.payload.blocks,
     updatedAt = cmd.timestamp,
   }
+  -- touch workflow history if exists
+  if state.workflows[key] then
+    table.insert(state.workflows[key].history, { at = cmd.timestamp, by = cmd.actor, action = "draft_saved" })
+  end
   return ok(cmd.requestId, { draftKey = key })
 end
 
@@ -264,6 +280,16 @@ function handlers.PublishPageVersion(cmd)
   end
   enqueue_event(ev)
   table.insert(outbox, ev) -- keep in-memory outbox for tests/introspection
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  if state.workflows[key] then
+    state.workflows[key].status = "published"
+    state.workflows[key].publishedAt = cmd.timestamp
+    state.workflows[key].versionId = cmd.payload.versionId
+    table.insert(
+      state.workflows[key].history,
+      { at = cmd.timestamp, by = cmd.actor, action = "publish", versionId = cmd.payload.versionId }
+    )
+  end
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
 end
 
@@ -272,6 +298,138 @@ function handlers.UpsertRoute(cmd)
   state.routes[siteId] = state.routes[siteId] or {}
   state.routes[siteId][cmd.payload.path] = cmd.payload.target
   return ok(cmd.requestId, { path = cmd.payload.path })
+end
+
+local function content_key(siteId, pageId)
+  return (siteId or "") .. ":" .. (pageId or "")
+end
+
+function handlers.LockContent(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  local ttl = tonumber(cmd.payload.ttl or 300)
+  if ttl < 30 then ttl = 30 end
+  if ttl > 7200 then ttl = 7200 end
+  state.locks[key] = { owner = cmd.actor, expiresAt = os.time() + ttl }
+  return ok(cmd.requestId, { locked = true, key = key, owner = cmd.actor, expiresAt = state.locks[key].expiresAt })
+end
+
+function handlers.UnlockContent(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  local lock = state.locks[key]
+  if lock and lock.owner and lock.owner ~= cmd.actor then
+    return err(cmd.requestId, "FORBIDDEN", "lock_owned_by_other", { owner = lock.owner })
+  end
+  state.locks[key] = nil
+  return ok(cmd.requestId, { unlocked = true, key = key })
+end
+
+function handlers.SubmitForReview(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  state.workflows[key] = state.workflows[key] or { history = {} }
+  local wf = state.workflows[key]
+  wf.status = "pending_review"
+  wf.submittedBy = cmd.actor
+  wf.submittedAt = cmd.timestamp
+  wf.reviewers = cmd.payload.reviewers or wf.reviewers or {}
+  wf.dueAt = cmd.payload.dueAt
+  table.insert(wf.history, { at = cmd.timestamp, by = cmd.actor, action = "submit", reviewers = wf.reviewers })
+  return ok(cmd.requestId, { key = key, status = wf.status, reviewers = wf.reviewers })
+end
+
+function handlers.ApproveContent(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  local wf = state.workflows[key]
+  if not wf or wf.status ~= "pending_review" then
+    return err(cmd.requestId, "INVALID_STATE", "not_pending_review")
+  end
+  wf.status = "approved"
+  wf.approvedBy = cmd.actor
+  wf.approvedAt = cmd.timestamp
+  table.insert(wf.history, { at = cmd.timestamp, by = cmd.actor, action = "approve" })
+  -- optional autopublish
+  if cmd.payload.publishNow and cmd.payload.versionId then
+    local pub = handlers.PublishPageVersion {
+      payload = {
+        siteId = cmd.payload.siteId,
+        pageId = cmd.payload.pageId,
+        versionId = cmd.payload.versionId,
+        manifestTx = cmd.payload.manifestTx,
+      },
+      requestId = cmd.requestId .. "-pub",
+    }
+    wf.status = "published"
+    wf.publishedAt = os.time()
+    wf.versionId = cmd.payload.versionId
+    return ok(cmd.requestId, { status = wf.status, publishResponse = pub })
+  end
+  return ok(cmd.requestId, { status = wf.status })
+end
+
+function handlers.RequestChanges(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  local wf = state.workflows[key]
+  if not wf then
+    return err(cmd.requestId, "NOT_FOUND", "workflow_not_found")
+  end
+  wf.status = "changes_requested"
+  wf.requestedBy = cmd.actor
+  wf.requestedAt = cmd.timestamp
+  wf.changeNotes = cmd.payload.notes
+  table.insert(wf.history, { at = cmd.timestamp, by = cmd.actor, action = "request_changes", notes = cmd.payload.notes })
+  return ok(cmd.requestId, { status = wf.status, notes = cmd.payload.notes })
+end
+
+function handlers.AddContentComment(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  state.comments[key] = state.comments[key] or {}
+  table.insert(state.comments[key], {
+    author = cmd.actor,
+    text = cmd.payload.text,
+    at = cmd.timestamp,
+    path = cmd.payload.path,
+  })
+  return ok(cmd.requestId, { key = key, count = #state.comments[key] })
+end
+
+function handlers.SchedulePublish(cmd)
+  local key = content_key(cmd.payload.siteId, cmd.payload.pageId)
+  local at = tonumber(cmd.payload.publishAt)
+  if not at or at <= os.time() then
+    return err(cmd.requestId, "INVALID_INPUT", "publishAt must be future timestamp")
+  end
+  table.insert(state.scheduled, {
+    contentKey = key,
+    siteId = cmd.payload.siteId,
+    pageId = cmd.payload.pageId,
+    versionId = cmd.payload.versionId,
+    manifestTx = cmd.payload.manifestTx,
+    publishAt = at,
+  })
+  return ok(cmd.requestId, { scheduled = true, publishAt = at })
+end
+
+function handlers.RunScheduledPublishes(cmd)
+  local now = os.time()
+  local remaining = {}
+  local published = {}
+  for _, job in ipairs(state.scheduled) do
+    if job.publishAt <= now then
+      local resp = handlers.PublishPageVersion {
+        payload = {
+          siteId = job.siteId,
+          pageId = job.pageId,
+          versionId = job.versionId,
+          manifestTx = job.manifestTx,
+        },
+        requestId = (cmd.requestId or "sched") .. "-" .. tostring(job.publishAt),
+      }
+      table.insert(published, { key = job.contentKey, response = resp })
+    else
+      table.insert(remaining, job)
+    end
+  end
+  state.scheduled = remaining
+  return ok(cmd.requestId, { published = published, remaining = #remaining })
 end
 
 function handlers.DeleteRoute(cmd)
