@@ -1,0 +1,18 @@
+{
+  "action": "UpsertCustomer",
+  "requestId": "rid-sample-customer-001",
+  "actor": "support-1",
+  "role": "support",
+  "tenant": "tenant-1",
+  "timestamp": "2026-03-15T00:02:00Z",
+  "nonce": "nonce-sample-customer-001",
+  "signatureRef": "sigref-sample-customer-001",
+  "payload": {
+    "tenant": "tenant-1",
+    "customerId": "cust-1",
+    "profile": {
+      "email": "user@example.com",
+      "name": "User One"
+    }
+  }
+}

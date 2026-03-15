@@ -9,13 +9,18 @@ local function env_bool(name)
 end
 
 local overrides = { require_sig = nil, require_nonce = nil, allow_anon = nil }
+local rl_override = { window = nil, max = nil }
 local role_policy = {
   SaveDraftPage      = { "editor", "admin" },
   PublishPageVersion = { "publisher", "admin" },
   UpsertRoute        = { "editor", "admin" },
+  DeleteRoute        = { "editor", "admin" },
   UpsertProduct      = { "catalog-admin", "admin" },
   UpsertInventory    = { "inventory-admin", "admin" },
   UpsertPriceRule    = { "pricing-admin", "admin" },
+  UpsertCustomer     = { "support", "admin" },
+  UpsertOrderStatus  = { "support", "admin" },
+  IssueRefund        = { "support", "admin" },
   GrantRole          = { "admin" },
   GrantEntitlement   = { "access-admin", "admin" },
   RevokeEntitlement  = { "access-admin", "admin" },
@@ -30,6 +35,11 @@ end
 
 function Auth._set_role_policy(map)
   role_policy = map
+end
+
+function Auth._set_rate_limits(window, max)
+  rl_override.window = window
+  rl_override.max = max
 end
 
 local function flag(name, override_key)
@@ -160,14 +170,16 @@ end
 function Auth.check_rate_limit(command)
   local now = os.time()
   local key = (command.tenant or "global") .. ":" .. (command.actor or "anon")
-  local bucket = rate_store[key] or { count = 0, reset = now + RL_WINDOW }
+  local window = rl_override.window or RL_WINDOW
+  local max = rl_override.max or RL_MAX
+  local bucket = rate_store[key] or { count = 0, reset = now + window }
   if now > bucket.reset then
     bucket.count = 0
-    bucket.reset = now + RL_WINDOW
+    bucket.reset = now + window
   end
   bucket.count = bucket.count + 1
   rate_store[key] = bucket
-  if bucket.count > RL_MAX then
+  if bucket.count > max then
     return false, "rate_limited"
   end
   return true

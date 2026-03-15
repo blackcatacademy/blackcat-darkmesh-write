@@ -11,8 +11,8 @@ end
 local function with_req(cmd)
   cmd.requestId = cmd.requestId or string.format("rid-%015d", math.random(1, 1e9))
   cmd.timestamp = cmd.timestamp or "2026-03-15T00:00:00Z"
-  cmd.nonce = cmd.nonce or "nonce-1234567890"
-  cmd.signatureRef = cmd.signatureRef or "sigref-1234567890"
+  cmd.nonce = cmd.nonce or string.format("nonce-%017d", math.random(1, 1e9))
+  cmd.signatureRef = cmd.signatureRef or string.format("sigref-%017d", math.random(1, 1e9))
   cmd.actor = cmd.actor or "actor-1"
   cmd.tenant = cmd.tenant or "tenant-1"
   cmd.role = cmd.role or "admin"
@@ -70,6 +70,58 @@ do
     payload = { tenant = "t1", subject = "u1", role = "editor" },
   }))
   assert_status(resp, "ERROR", "forbidden role")
+end
+
+-- bad signature (hmac mismatch)
+do
+  _G.WRITE_SIG_TYPE = "hmac"
+  os.setenv = os.setenv or function() end
+  os.setenv("WRITE_SIG_TYPE", "hmac")
+  os.setenv("WRITE_SIG_SECRET", "secret1")
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
+  local write = require("ao.write.process")
+  local resp = write.route(with_req({
+    action = "SaveDraftPage",
+    signature = "deadbeef",
+    payload = { siteId = "s-bad", pageId = "p", locale = "en", blocks = {} },
+  }))
+  assert_status(resp, "ERROR", "bad signature")
+  os.setenv("WRITE_SIG_TYPE", nil)
+  os.setenv("WRITE_SIG_SECRET", nil)
+  _G.WRITE_SIG_TYPE = nil
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
+end
+
+-- missing actor/tenant
+do
+  local write = require("ao.write.process")
+  local resp = write.route({
+    action = "SaveDraftPage",
+    requestId = "rid-missing-actor",
+    timestamp = "2026-03-15T00:00:00Z",
+    nonce = "nonce-xxx",
+    signatureRef = "sigref-xxx",
+    payload = { siteId = "s1", pageId = "p1", locale = "en", blocks = {} },
+  })
+  assert_status(resp, "ERROR", "missing actor/tenant")
+end
+
+-- rate limit breach
+do
+  package.loaded["ao.shared.auth"] = nil
+  local auth = require("ao.shared.auth")
+  auth._set_rate_limits(60, 1)
+  package.loaded["ao.write.process"] = nil
+  local write = require("ao.write.process")
+  local r1 = write.route(with_req({ action = "SaveDraftPage", payload = { siteId = "r1", pageId = "p1", locale = "en", blocks = {} } }))
+  assert_status(r1, "OK", "rl first ok")
+  local r2 = write.route(with_req({ action = "SaveDraftPage", payload = { siteId = "r1", pageId = "p2", locale = "en", blocks = {} } }))
+  assert_status(r2, "ERROR", "rl second blocked")
+  auth._set_rate_limits(nil, nil)
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
 end
 
 print("conflict tests passed")

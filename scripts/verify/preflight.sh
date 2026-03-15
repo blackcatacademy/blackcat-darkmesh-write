@@ -55,4 +55,34 @@ if command -v lua5.4 >/dev/null 2>&1; then
     echo "[verify] conflict/security tests"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/conflicts.lua"
   fi
+  if [ -n "${WRITE_IDEM_PATH:-}" ]; then
+    echo "[verify] idempotency persistence"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 - <<'LUA'
+local idem = require("ao.shared.idempotency")
+local write = require("ao.write.process")
+local tmp = os.getenv("WRITE_IDEM_PATH")
+local cmd = { action = "SaveDraftPage", requestId = "rid-persist-1", actor = "a", tenant = "t", role = "admin", timestamp = "2026-03-15T00:00:00Z", nonce = "nonce-persist-1", signatureRef = "sigref-persist-1", payload = { siteId = "s", pageId = "p", locale = "en", blocks = {} } }
+write.route(cmd)
+package.loaded["ao.write.process"] = nil
+package.loaded["ao.shared.idempotency"] = nil
+local idem2 = require("ao.shared.idempotency")
+local resp = idem2.lookup("rid-persist-1")
+if not resp or resp.status ~= "OK" then error("persisted idempotency missing") end
+os.remove(tmp)
+LUA
+  fi
+  if [ -n "${WRITE_OUTBOX_PATH:-}" ]; then
+    echo "[verify] outbox persistence"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 - <<'LUA'
+local write = require("ao.write.process")
+local tmp = os.getenv("WRITE_OUTBOX_PATH")
+write.route({ action = "PublishPageVersion", requestId = "rid-outbox-1", actor = "a", tenant = "t", role = "publisher", timestamp = "2026-03-15T00:00:00Z", nonce = "nonce-outbox-1", signatureRef = "sigref-outbox-1", payload = { siteId = "s", pageId = "p", versionId = "v1", manifestTx = "tx1" } })
+package.loaded["ao.write.process"] = nil
+local storage = require("ao.shared.storage")
+storage.load(tmp)
+local events = storage.all("outbox")
+if #events == 0 then error("outbox persistence missing") end
+os.remove(tmp)
+LUA
+  fi
 fi

@@ -5,7 +5,8 @@ local Bridge = {}
 local cjson_ok, cjson = pcall(require, "cjson")
 local endpoint = os.getenv("AO_ENDPOINT")
 local api_key = os.getenv("AO_API_KEY")
-local dry_run = os.getenv("DRY_RUN") == "1" or (os.getenv("AO_BRIDGE_MODE") == "mock")
+local bridge_mode = os.getenv("AO_BRIDGE_MODE") or (os.getenv("DRY_RUN") == "1" and "mock") or "http"
+local dry_run = bridge_mode == "mock"
 local retries = tonumber(os.getenv("AO_BRIDGE_RETRIES") or "3")
 local backoff_ms = tonumber(os.getenv("AO_BRIDGE_BACKOFF_MS") or "200")
 
@@ -39,6 +40,7 @@ local function sleep(ms)
 end
 
 function Bridge.forward_event(ev)
+  if bridge_mode == "off" then return true end
   if not cjson_ok then return false, "cjson_missing" end
   local body = cjson.encode(ev)
   for attempt = 1, retries do

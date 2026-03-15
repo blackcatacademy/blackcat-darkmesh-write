@@ -107,6 +107,7 @@ local ACTIONS = read_json(actions_path) or {}
 local function type_of(value)
   local t = type(value)
   if t == "table" then
+    if next(value) == nil then return "object" end
     local i = 0
     for _ in pairs(value) do
       i = i + 1
@@ -132,6 +133,9 @@ local function validate_properties(value, schema, path, errors)
       local v = value[name]
       if v ~= nil then
         local actual_type = type_of(v)
+        if prop.type == "array" and type(v) == "table" and next(v) == nil then
+          actual_type = "array"
+        end
         if prop.type and actual_type ~= prop.type then
           if not (prop.type == "integer" and actual_type == "number" and math.floor(value[name]) == value[name]) then
             table.insert(errors, path .. name .. " expected " .. prop.type .. ", got " .. actual_type)

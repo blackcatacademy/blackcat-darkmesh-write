@@ -11,8 +11,8 @@ end
 local function with_req(cmd)
   cmd.requestId = cmd.requestId or string.format("rid-%017d", math.random(1, 1e9))
   cmd.timestamp = cmd.timestamp or "2026-03-15T00:00:00Z"
-  cmd.nonce = cmd.nonce or "nonce-1234567890"
-  cmd.signatureRef = cmd.signatureRef or "sigref-1234567890"
+  cmd.nonce = cmd.nonce or string.format("nonce-%017d", math.random(1, 1e9))
+  cmd.signatureRef = cmd.signatureRef or string.format("sigref-%017d", math.random(1, 1e9))
   cmd.actor = cmd.actor or "actor-1"
   cmd.tenant = cmd.tenant or "tenant-1"
   cmd.role = cmd.role or "admin"
@@ -106,6 +106,29 @@ do
     payload = { subject = "subj1", asset = "asset1" },
   }))
   assert_status(revoke, "OK", "revoke entitlement")
+  local customer = write.route(with_req({
+    action = "UpsertCustomer",
+    role = "support",
+    payload = { tenant = "t1", customerId = "c1", profile = { email = "a@b.com" } },
+  }))
+  assert_status(customer, "OK", "upsert customer")
+  local order = write.route(with_req({
+    action = "UpsertOrderStatus",
+    role = "support",
+    payload = { orderId = "o1", status = "paid", reason = "paid test" },
+  }))
+  assert_status(order, "OK", "order status")
+  local refund = write.route(with_req({
+    action = "IssueRefund",
+    role = "support",
+    payload = { orderId = "o1", amount = 10.5, currency = "USD" },
+  }))
+  assert_status(refund, "OK", "issue refund")
+  local webhook = write.route(with_req({
+    action = "CreateWebhook",
+    payload = { tenant = "t1", url = "https://example.com/hook", events = { "order.created" } },
+  }))
+  assert_status(webhook, "OK", "create webhook")
 end
 
 -- Unknown action

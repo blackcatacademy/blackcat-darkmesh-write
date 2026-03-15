@@ -22,6 +22,9 @@ local state = {
   entitlements = {},  -- subject -> list of {asset, policy}
   inventory = {},     -- siteId -> sku -> entry
   price_rules = {},   -- siteId -> ruleId -> entry
+  customers = {},     -- tenant -> customerId -> profile
+  orders = {},        -- orderId -> status, reason
+  webhooks = {},      -- tenant -> list of endpoints
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -70,6 +73,14 @@ function handlers.UpsertRoute(cmd)
   state.routes[siteId] = state.routes[siteId] or {}
   state.routes[siteId][cmd.payload.path] = cmd.payload.target
   return ok(cmd.requestId, { path = cmd.payload.path })
+end
+
+function handlers.DeleteRoute(cmd)
+  local siteId = cmd.payload.siteId
+  if state.routes[siteId] then
+    state.routes[siteId][cmd.payload.path] = nil
+  end
+  return ok(cmd.requestId, { deleted = cmd.payload.path })
 end
 
 function handlers.UpsertProduct(cmd)
@@ -135,6 +146,43 @@ function handlers.GrantRole(cmd)
   state.roles[tenant] = state.roles[tenant] or {}
   state.roles[tenant][cmd.payload.subject] = cmd.payload.role
   return ok(cmd.requestId, { tenant = tenant, subject = cmd.payload.subject, role = cmd.payload.role })
+end
+
+function handlers.UpsertCustomer(cmd)
+  local tenant = cmd.payload.tenant
+  state.customers[tenant] = state.customers[tenant] or {}
+  state.customers[tenant][cmd.payload.customerId] = cmd.payload.profile
+  return ok(cmd.requestId, { customerId = cmd.payload.customerId })
+end
+
+function handlers.UpsertOrderStatus(cmd)
+  state.orders[cmd.payload.orderId] = {
+    status = cmd.payload.status,
+    reason = cmd.payload.reason,
+    updatedAt = cmd.timestamp,
+  }
+  return ok(cmd.requestId, { orderId = cmd.payload.orderId, status = cmd.payload.status })
+end
+
+function handlers.IssueRefund(cmd)
+  table.insert(outbox, {
+    type = "IssueRefund",
+    orderId = cmd.payload.orderId,
+    amount = cmd.payload.amount,
+    currency = cmd.payload.currency,
+    requestId = cmd.requestId,
+  })
+  storage.append("outbox", outbox[#outbox])
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  bridge.forward_event(outbox[#outbox])
+  return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount })
+end
+
+function handlers.CreateWebhook(cmd)
+  local tenant = cmd.payload.tenant
+  state.webhooks[tenant] = state.webhooks[tenant] or {}
+  table.insert(state.webhooks[tenant], { url = cmd.payload.url, events = cmd.payload.events })
+  return ok(cmd.requestId, { url = cmd.payload.url })
 end
 
 -- route(command) validates and dispatches.

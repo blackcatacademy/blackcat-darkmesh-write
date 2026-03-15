@@ -50,11 +50,11 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
 - `WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json` — persist outbox events (used by forwarders/export).
 - `WRITE_RL_WINDOW_SECONDS` / `WRITE_RL_MAX_REQUESTS` — rate-limit per tenant+actor (default 60s / 200 reqs).
-- Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock` to only log; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS` for retry/backoff.
-- Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` to only log. Router will best-effort POST publish events when set.
+- Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock|off|http`; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS` for retry/backoff; `AO_QUEUE_PATH` for queue forwarder.
 
 ## CLI helpers
 - `lua scripts/cli/run_command.lua ./fixtures/sample-save-draft.json` — route a JSON command locally and print the response (uses in-memory state). A publish sample is at `fixtures/sample-publish.json`.
+- `lua scripts/cli/batch_run.lua` — run all fixtures in `fixtures/` and compare with `*.expected.json` when present.
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.

@@ -116,6 +116,55 @@
         "role": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "UpsertCustomer": {
+      "type": "object",
+      "required": ["tenant", "customerId", "profile"],
+      "properties": {
+        "tenant": { "type": "string" },
+        "customerId": { "type": "string" },
+        "profile": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertOrderStatus": {
+      "type": "object",
+      "required": ["orderId", "status"],
+      "properties": {
+        "orderId": { "type": "string" },
+        "status": { "type": "string", "enum": ["created", "paid", "shipped", "delivered", "cancelled", "refunded"] },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "IssueRefund": {
+      "type": "object",
+      "required": ["orderId", "amount"],
+      "properties": {
+        "orderId": { "type": "string" },
+        "amount": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "CreateWebhook": {
+      "type": "object",
+      "required": ["tenant", "url", "events"],
+      "properties": {
+        "tenant": { "type": "string" },
+        "url": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      },
+      "additionalProperties": false
+    },
+    "DeleteRoute": {
+      "type": "object",
+      "required": ["siteId", "path"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
