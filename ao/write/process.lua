@@ -1072,6 +1072,28 @@ function handlers.PaymentReturn(cmd)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
 end
 
+-- RefreshPaymentStatus: fetch latest status from provider and sync order/payment states
+function handlers.RefreshPaymentStatus(cmd)
+  local payment = state.payments[cmd.payload.paymentId]
+  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  local provider = cmd.payload.provider or payment.provider
+  local new_status = payment.status
+  if provider == "stripe" and payment.providerPaymentId and stripe_ok then
+    local live = stripe.retrieve_status(payment.providerPaymentId)
+    if live then new_status = stripe.status_from_payload({ status = live }) end
+  elseif provider == "paypal" and payment.providerPaymentId and paypal_ok then
+    local live = paypal.retrieve_status and paypal.retrieve_status(payment.providerPaymentId)
+    if live then new_status = live end
+  elseif provider == "gopay" and payment.providerPaymentId and gopay_ok then
+    local live = gopay.status and gopay.status(payment.providerPaymentId)
+    if live then new_status = live.status or live end
+  end
+  if new_status and new_status ~= payment.status then
+    set_payment_status(cmd.payload.paymentId, new_status, "refresh", cmd.requestId)
+  end
+  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = state.payments[cmd.payload.paymentId].status })
+end
+
 function handlers.VoidPayment(cmd)
   local payment = state.payments[cmd.payload.paymentId]
   if not payment then

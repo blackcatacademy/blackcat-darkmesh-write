@@ -418,6 +418,15 @@
       },
       "additionalProperties": false
     },
+    "RefreshPaymentStatus": {
+      "type": "object",
+      "required": ["paymentId"],
+      "properties": {
+        "paymentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "provider": { "type": "string", "enum": ["stripe", "paypal", "gopay", "manual"] }
+      },
+      "additionalProperties": false
+    },
     "UpsertShipmentStatus": {
       "type": "object",
       "required": ["shipmentId", "status", "orderId"],
