@@ -17,7 +17,17 @@ jobs:
       - name: Install Lua 5.4
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.4
+          sudo apt-get install -y lua5.4 luarocks
+
+      - name: Install rocks from lockfile
+        run: |
+          if [ -f ops/rocks.lock ]; then
+            luarocks install --local --only-deps ops/rocks.lock || true
+            echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+          else
+            echo "ops/rocks.lock missing" >&2
+            exit 1
+          fi
 
       - name: Install luacheck/stylua
         run: |

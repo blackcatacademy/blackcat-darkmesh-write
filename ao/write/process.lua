@@ -862,12 +862,16 @@ function handlers.UpdateShipmentTracking(cmd)
   state.shipments[cmd.payload.shipmentId].tracking = cmd.payload.tracking
   state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier or state.shipments[cmd.payload.shipmentId].carrier
   state.shipments[cmd.payload.shipmentId].eta = cmd.payload.eta or state.shipments[cmd.payload.shipmentId].eta
+  if os.getenv("CARRIER_TRACK_URL") and cmd.payload.tracking then
+    state.shipments[cmd.payload.shipmentId].trackingUrl = string.format("%s/%s", os.getenv("CARRIER_TRACK_URL"), cmd.payload.tracking)
+  end
   enqueue_event({
     type = "ShipmentTrackingUpdated",
     shipmentId = cmd.payload.shipmentId,
     tracking = cmd.payload.tracking,
     carrier = state.shipments[cmd.payload.shipmentId].carrier,
     eta = state.shipments[cmd.payload.shipmentId].eta,
+    trackingUrl = state.shipments[cmd.payload.shipmentId].trackingUrl,
     orderId = cmd.payload.orderId,
   })
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, tracking = cmd.payload.tracking })
