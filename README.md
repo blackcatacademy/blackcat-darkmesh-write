@@ -23,6 +23,7 @@ schemas/           # JSON schemas for command envelopes and actions
 scripts/           # deploy | verify
 fixtures/          # sample command envelopes and expected outcomes
 tests/             # contract, conflict, and security tests
+scripts/bridge/    # stub forwarder from write outbox to -ao
 .github/workflows/ # CI entrypoint
 ```
 
@@ -44,6 +45,9 @@ tests/             # contract, conflict, and security tests
 - `WRITE_REQUIRE_NONCE=1` — reject commands without nonce and block replay.
 - `WRITE_NONCE_TTL_SECONDS` (default 300) and `WRITE_NONCE_MAX` (default 2048) — nonce cache sizing.
 - `WRITE_ALLOW_ANON=1` — allow missing actor/tenant (off by default).
+
+## Bridge (stub)
+- `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
 
 ## Security Guard Rails
 - No secrets or raw keys in AO state, manifests, or adapters.
