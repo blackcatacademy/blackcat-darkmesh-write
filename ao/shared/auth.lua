@@ -8,6 +8,8 @@ local function env_bool(name)
   return os.getenv(name) == "1"
 end
 
+local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
+
 local overrides = { require_sig = nil, require_nonce = nil, allow_anon = nil }
 local rl_override = { window = nil, max = nil }
 local role_policy = {
@@ -93,6 +95,42 @@ function Auth.require_nonce(command)
   end
   nonce_store[nonce] = os.time() + NONCE_TTL
   prune_nonces()
+  return true
+end
+
+-- Optional JWT (HS256) consumption:
+--  WRITE_JWT_HS_SECRET=... (shared secret)
+--  WRITE_REQUIRE_JWT=1 to fail-closed if token missing/invalid.
+local function extract_bearer(command)
+  if command.jwt then return command.jwt end
+  if command.JWT then return command.JWT end
+  if command.token then return command.token end
+  local authz = command.Authorization or command.authorization or command.auth
+  if authz and type(authz) == "string" then
+    return (authz:gsub("^%s*[Bb]earer%s+", ""))
+  end
+end
+
+function Auth.consume_jwt(command)
+  local secret = getenv("WRITE_JWT_HS_SECRET")
+  if not secret or secret == "" then return true end
+  if not jwt_ok then return false, "jwt_module_missing" end
+  local token = extract_bearer(command)
+  if (not token or token == "") and env_bool("WRITE_REQUIRE_JWT") then
+    return false, "missing_jwt"
+  elseif not token or token == "" then
+    return true
+  end
+  local ok, claims = jwt.verify_hs256(token, secret)
+  if not ok then return false, claims or "jwt_invalid" end
+  if claims.exp and os.time() > claims.exp then
+    return false, "jwt_expired"
+  end
+  command.actor = command.actor or claims.sub
+  command.tenant = command.tenant or claims.tenant
+  command.role = command.role or claims.role
+  command.nonce = command.nonce or claims.nonce
+  command.jwt_claims = claims
   return true
 end
 

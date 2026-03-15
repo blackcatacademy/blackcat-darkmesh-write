@@ -1070,6 +1070,11 @@ function M.route(command)
   local stored = idem.lookup(command.requestId or command["Request-Id"])
   if stored then return stored end
 
+  local ok_jwt, jwt_err = auth.consume_jwt(command)
+  if not ok_jwt then
+    return err(command.requestId, "UNAUTHORIZED", jwt_err or "jwt_failed")
+  end
+
   local ok_env, env_errs = validation.validate_envelope(command)
   if not ok_env then
     return err(command.requestId, "INVALID_INPUT", "Envelope validation failed", env_errs)
