@@ -49,6 +49,10 @@
       "type": "string",
       "description": "Reference to signature or capability proof."
     },
+    "role": {
+      "type": "string",
+      "description": "Actor role used for action allowlists."
+    },
     "payload": {
       "type": "object",
       "description": "Action-specific payload validated by action schema."

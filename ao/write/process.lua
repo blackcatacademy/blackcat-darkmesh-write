@@ -169,6 +169,10 @@ function M.route(command)
   if not ok_policy then
     return err(command.requestId, "FORBIDDEN", pol_err or "policy denied")
   end
+  local ok_role, role_err = auth.check_role_for_action(command)
+  if not ok_role then
+    return err(command.requestId, "FORBIDDEN", role_err or "role denied")
+  end
   local ok_rl, rl_err = auth.check_rate_limit(command)
   if not ok_rl then
     return err(command.requestId, "RATE_LIMITED", rl_err)

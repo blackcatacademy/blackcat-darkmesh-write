@@ -9,12 +9,13 @@ local function assert_status(resp, status, label)
 end
 
 local function with_req(cmd)
-  cmd.requestId = cmd.requestId or string.format("rid-%015d", math.random(1, 1e9))
+  cmd.requestId = cmd.requestId or string.format("rid-%017d", math.random(1, 1e9))
   cmd.timestamp = cmd.timestamp or "2026-03-15T00:00:00Z"
-  cmd.nonce = cmd.nonce or "nonce-12345678"
-  cmd.signatureRef = cmd.signatureRef or "sigref-12345678"
+  cmd.nonce = cmd.nonce or "nonce-1234567890"
+  cmd.signatureRef = cmd.signatureRef or "sigref-1234567890"
   cmd.actor = cmd.actor or "actor-1"
   cmd.tenant = cmd.tenant or "tenant-1"
+  cmd.role = cmd.role or "admin"
   return cmd
 end
 

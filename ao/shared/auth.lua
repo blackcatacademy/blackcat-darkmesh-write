@@ -9,11 +9,27 @@ local function env_bool(name)
 end
 
 local overrides = { require_sig = nil, require_nonce = nil, allow_anon = nil }
+local role_policy = {
+  SaveDraftPage      = { "editor", "admin" },
+  PublishPageVersion = { "publisher", "admin" },
+  UpsertRoute        = { "editor", "admin" },
+  UpsertProduct      = { "catalog-admin", "admin" },
+  UpsertInventory    = { "inventory-admin", "admin" },
+  UpsertPriceRule    = { "pricing-admin", "admin" },
+  GrantRole          = { "admin" },
+  GrantEntitlement   = { "access-admin", "admin" },
+  RevokeEntitlement  = { "access-admin", "admin" },
+  UpsertProfile      = { "editor", "admin" },
+}
 
 function Auth._set_flags(opts)
   overrides.require_sig = opts.require_sig
   overrides.require_nonce = opts.require_nonce
   overrides.allow_anon = opts.allow_anon
+end
+
+function Auth._set_role_policy(map)
+  role_policy = map
 end
 
 local function flag(name, override_key)
@@ -77,10 +93,10 @@ function Auth.verify_signature(command)
   return true
 end
 
--- Optional: detached signature check (ed25519 or HMAC) when env set.
+-- Optional: detached signature check (ed25519 | ecdsa | HMAC) when env set.
 -- Env:
---  WRITE_SIG_TYPE=ed25519|hmac
---  WRITE_SIG_PUBLIC=/path/to/pubkey (ed25519)
+--  WRITE_SIG_TYPE=ed25519|ecdsa|hmac
+--  WRITE_SIG_PUBLIC=/path/to/pubkey (ed25519/ecdsa PEM)
 --  WRITE_SIG_SECRET=... (hmac)
 function Auth.verify_detached(message, signature_hex)
   local sig_type = os.getenv("WRITE_SIG_TYPE") or "none"
@@ -88,6 +104,10 @@ function Auth.verify_detached(message, signature_hex)
     local pub = os.getenv("WRITE_SIG_PUBLIC")
     if not pub then return false, "missing_public_key" end
     return crypto.verify_ed25519(message, signature_hex, pub)
+  elseif sig_type == "ecdsa" then
+    local pub = os.getenv("WRITE_SIG_PUBLIC")
+    if not pub then return false, "missing_public_key" end
+    return crypto.verify_ecdsa_sha256(message, signature_hex, pub)
   elseif sig_type == "hmac" then
     local secret = os.getenv("WRITE_SIG_SECRET")
     if not secret then return false, "missing_secret" end
@@ -115,6 +135,26 @@ function Auth.check_policy(command, policy)
     if not ok then return false, "forbidden" end
   end
   return true
+end
+
+function Auth.check_role_for_action(command)
+  local rp = role_policy
+  local env = os.getenv("WRITE_ROLE_POLICY")
+  if env and env ~= "" then
+    local ok, cjson = pcall(require, "cjson")
+    if ok then
+      local decoded = cjson.decode(env)
+      if type(decoded) == "table" then rp = decoded end
+    end
+  end
+  local allowed = rp and rp[command.action or command.Action]
+  if not allowed then return true end
+  local role = command.role or command.ActorRole
+  if not role then return false, "missing_role" end
+  for _, r in ipairs(allowed) do
+    if r == role then return true end
+  end
+  return false, "forbidden_role"
 end
 
 function Auth.check_rate_limit(command)

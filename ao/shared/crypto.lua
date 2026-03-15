@@ -29,6 +29,19 @@ function Crypto.verify_ed25519(message, signature_hex, pubkey_path)
   return false, "ed25519_not_available"
 end
 
+function Crypto.verify_ecdsa_sha256(message, signature_hex, pubkey_path)
+  if not openssl or not openssl.pkey or not openssl.digest then
+    return false, "ecdsa_not_available"
+  end
+  local pem = assert(io.open(pubkey_path, "r")):read("*a")
+  local pkey = openssl.pkey.read(pem, true, "public")
+  local sig = openssl.hex(signature_hex)
+  local verifier = openssl.verify.new("sha256")
+  verifier:update(message)
+  local ok = verifier:verify(sig, pkey)
+  return ok, ok and nil or "bad_signature"
+end
+
 function Crypto.verify_hmac_sha256(message, secret, signature_hex)
   if openssl and openssl.hmac then
     local raw = openssl.hmac.digest("sha256", message, secret, true)
