@@ -38,6 +38,7 @@ scripts/cli/       # local helpers (run command)
 - Static checks: `scripts/verify/preflight.sh` (JSON schema validation + Lua syntax).
 - Contract smoke tests: `LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/verify/contracts.lua` (or set `RUN_CONTRACTS=1` to run during preflight).
 - Conflict/security smoke tests: `LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/verify/conflicts.lua` (or `RUN_CONFLICTS=1`).
+- Batch fixtures: `LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/cli/batch_run.lua` (or `RUN_BATCH=1` in preflight) – compares fixtures to `*.expected.json`.
 - Branches: `main` (releasable), `develop` (integration), `feature/*`, `adr/*`, `release/*`.
 - Message contracts and schemas are public API; prefer additive changes over breaking ones.
 

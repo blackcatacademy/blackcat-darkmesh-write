@@ -1,8 +1,29 @@
 #!/usr/bin/env lua
 -- Run all fixture commands and optionally compare with expected outputs.
 
-local lfs = require("lfs")
-local cjson = require("cjson")
+local function load_json_module()
+  local ok, mod = pcall(require, "cjson")
+  if ok then return mod end
+  ok, mod = pcall(require, "dkjson")
+  if ok then
+    return {
+      decode = function(str) return mod.decode(str) end,
+      encode = function(tbl) return mod.encode(tbl) end,
+    }
+  end
+  return nil
+end
+
+local cjson = load_json_module()
+if not cjson then
+  io.stderr:write("cjson or dkjson required for batch_run\n")
+  os.exit(1)
+end
+local lfs_ok, lfs = pcall(require, "lfs")
+if not lfs_ok then
+  io.stderr:write("lua-filesystem (lfs) required for batch_run\n")
+  os.exit(1)
+end
 local write = require("ao.write.process")
 
 local function read_file(path)

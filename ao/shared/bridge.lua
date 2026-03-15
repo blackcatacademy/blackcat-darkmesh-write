@@ -85,7 +85,7 @@ function Bridge.forward_event(ev)
           end
         end
       end
-      if ok then return true end
+      if ok then return true, status end
     end
     if attempt < retries then
       local jitter = math.random() * 0.5 + 0.75
