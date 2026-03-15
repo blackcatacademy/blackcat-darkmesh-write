@@ -322,6 +322,18 @@
       },
       "additionalProperties": false
     },
+    "PaymentReturn": {
+      "type": "object",
+      "required": ["provider", "paymentId", "status"],
+      "properties": {
+        "provider": { "type": "string", "enum": ["stripe", "paypal", "gopay"] },
+        "paymentId": { "type": "string" },
+        "status": { "type": "string" },
+        "redirectUrl": { "type": "string" },
+        "payload": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
     "UpsertShipmentStatus": {
       "type": "object",
       "required": ["shipmentId", "status", "orderId"],

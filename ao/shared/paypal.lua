@@ -123,4 +123,16 @@ function PayPal.verify_webhook(body, sig_header, secret)
   return expected == sig_header
 end
 
+function PayPal.status_from_payload(payload)
+  local event = payload and payload.event_type
+  local map = {
+    ["PAYMENT.CAPTURE.COMPLETED"] = "captured",
+    ["PAYMENT.CAPTURE.DENIED"] = "failed",
+    ["PAYMENT.CAPTURE.REFUNDED"] = "refunded",
+    ["PAYMENT.CAPTURE.REVERSED"] = "voided",
+    ["CHECKOUT.ORDER.APPROVED"] = "requires_capture",
+  }
+  return map[event] or "pending"
+end
+
 return PayPal

@@ -734,6 +734,34 @@ function handlers.ConfirmPayment(cmd)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
 end
 
+-- PaymentReturn: invoked after 3-DS/SCA or redirect back
+function handlers.PaymentReturn(cmd)
+  local payment = state.payments[cmd.payload.paymentId]
+  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  local status = "pending"
+  if cmd.payload.provider == "stripe" then
+    status = stripe_ok and stripe.status_from_payload(cmd.payload.payload) or "pending"
+    if payment.status == "requires_capture" and status == "requires_capture" then
+      handlers.ConfirmPayment({ payload = { paymentId = cmd.payload.paymentId, provider = "stripe", returnUrl = cmd.payload.redirectUrl }, requestId = cmd.requestId })
+      status = payment.status
+    end
+  elseif cmd.payload.provider == "paypal" then
+    status = paypal_ok and paypal.status_from_payload(cmd.payload.payload) or "pending"
+    if status == "requires_capture" then
+      handlers.ConfirmPayment({ payload = { paymentId = cmd.payload.paymentId, provider = "paypal" }, requestId = cmd.requestId })
+      status = payment.status
+    end
+  end
+  payment.status = status or payment.status
+  enqueue_event({
+    type = "PaymentStatusChanged",
+    paymentId = cmd.payload.paymentId,
+    status = payment.status,
+    requestId = cmd.requestId,
+  })
+  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
+end
+
 function handlers.VoidPayment(cmd)
   local payment = state.payments[cmd.payload.paymentId]
   if not payment then

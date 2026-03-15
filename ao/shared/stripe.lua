@@ -77,6 +77,20 @@ function Stripe.confirm(intent_id, return_url)
   return true
 end
 
+function Stripe.status_from_payload(payload)
+  if not payload then return "pending" end
+  local status = payload.status or payload.intent_status
+  local map = {
+    requires_action = "requires_capture",
+    requires_capture = "requires_capture",
+    succeeded = "captured",
+    processing = "pending",
+    canceled = "voided",
+    payment_failed = "failed",
+  }
+  return map[status] or "pending"
+end
+
 function Stripe.void(intent_id, reason)
   local key = os.getenv("STRIPE_API_KEY")
   if key then
