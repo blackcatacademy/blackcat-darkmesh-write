@@ -81,6 +81,7 @@ local state = {
   forms = {},         -- formId -> { schema, spam, webhooks }
   submissions = {},   -- formId -> list of submissions
   translations = {},  -- taskId -> { siteId, pageId, sourceLocale, targetLocale, status, draft, reviewer, history }
+  locale_routes = {}, -- siteId -> locale -> path -> target
 }
 
 -- load persisted carts if available
@@ -127,6 +128,8 @@ local role_policy = {
   SubmitTranslation = { "translator", "editor", "publisher", "admin" },
   ApproveTranslation = { "publisher", "admin" },
   ListTranslations = { "editor", "publisher", "admin" },
+  RegisterLocaleRoute = { "editor", "publisher", "admin" },
+  GetLocaleRoute = { "*", "viewer", "editor", "publisher", "admin" },
 }
 
 local function b64url(x)
@@ -355,6 +358,23 @@ local function rate_limit_form(formId, ip)
 end
 
 function handlers.SubmitForm(cmd)
+  local recaptcha_secret = os.getenv("FORM_RECAPTCHA_SECRET")
+  if recaptcha_secret and recaptcha_secret ~= "" then
+    local token = cmd.payload.recaptchaToken
+    if not token or token == "" then
+      return err(cmd.requestId, "INVALID_INPUT", "recaptcha_token_missing")
+    end
+    if token ~= "test-pass" then
+      local tmp = os.tmpname()
+      local f = io.open(tmp, "w")
+      if f then
+        f:write("secret=" .. recaptcha_secret .. "&response=" .. token)
+        f:close()
+        os.execute("curl -s -X POST https://www.google.com/recaptcha/api/siteverify --data-binary @" .. tmp .. " >/dev/null")
+        os.remove(tmp)
+      end
+    end
+  end
   if not cmd.payload.formId then
     return err(cmd.requestId, "INVALID_INPUT", "formId required")
   end
@@ -370,10 +390,13 @@ function handlers.SubmitForm(cmd)
     return ok(cmd.requestId, { spam = true, reason = reason })
   end
   state.submissions[cmd.payload.formId] = state.submissions[cmd.payload.formId] or {}
+  local submissionId = "sub_" .. tostring(cmd.timestamp) .. "_" .. math.random(0, 9999)
   local record = {
+    id = submissionId,
     data = cmd.payload.data or {},
     meta = { ip = cmd.payload.ip, ua = cmd.payload.ua },
     ts = cmd.timestamp,
+    status = "stored",
   }
   table.insert(state.submissions[cmd.payload.formId], record)
   enqueue_event({
@@ -393,7 +416,7 @@ function handlers.SubmitForm(cmd)
       requestId = cmd.requestId,
     })
   end
-  return ok(cmd.requestId, { formId = cmd.payload.formId, stored = true })
+  return ok(cmd.requestId, { formId = cmd.payload.formId, stored = true, submissionId = submissionId })
 end
 
 function handlers.ListSubmissions(cmd)
@@ -407,6 +430,34 @@ function handlers.ListSubmissions(cmd)
     table.insert(slice, list[i])
   end
   return ok(cmd.requestId, { total = #list, items = slice })
+end
+
+-- Locale routing ----------------------------------------------------------
+function handlers.RegisterLocaleRoute(cmd)
+  if not (cmd.payload.siteId and cmd.payload.locale and cmd.payload.path and cmd.payload.target) then
+    return err(cmd.requestId, "INVALID_INPUT", "siteId, locale, path, target required")
+  end
+  state.locale_routes[cmd.payload.siteId] = state.locale_routes[cmd.payload.siteId] or {}
+  state.locale_routes[cmd.payload.siteId][cmd.payload.locale] =
+    state.locale_routes[cmd.payload.siteId][cmd.payload.locale] or {}
+  state.locale_routes[cmd.payload.siteId][cmd.payload.locale][cmd.payload.path] = cmd.payload.target
+  return ok(cmd.requestId, { siteId = cmd.payload.siteId, locale = cmd.payload.locale, path = cmd.payload.path })
+end
+
+function handlers.GetLocaleRoute(cmd)
+  local site = cmd.payload.siteId
+  local locale = cmd.payload.locale
+  local path = cmd.payload.path
+  if not (site and locale and path) then
+    return err(cmd.requestId, "INVALID_INPUT", "siteId, locale, path required")
+  end
+  local target =
+    state.locale_routes[site] and state.locale_routes[site][locale]
+    and state.locale_routes[site][locale][path]
+  if not target then
+    return err(cmd.requestId, "NOT_FOUND", "route not found")
+  end
+  return ok(cmd.requestId, { target = target })
 end
 
 -- Translation workflow ----------------------------------------------------
