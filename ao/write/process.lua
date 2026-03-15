@@ -248,9 +248,22 @@ end
 local function is_coupon_valid(code, order)
   local c = state.coupons[code]
   if not c then return false, "unknown_coupon" end
-  if c.expiresAt and c.expiresAt < os.time() then return false, "expired" end
+  local now = os.time()
+  if c.startsAt and now < c.startsAt then return false, "not_started" end
+  if c.expiresAt and now > c.expiresAt then return false, "expired" end
+  if c.is_active == false then return false, "inactive" end
   if c.currency and order.currency and c.currency ~= order.currency then return false, "currency_mismatch" end
   if c.minOrder and order.totalAmount and order.totalAmount < c.minOrder then return false, "min_order_not_met" end
+  if c.maxRedemptions and (state.coupon_redemptions[code] or 0) >= c.maxRedemptions then return false, "coupon_exhausted" end
+  if c.applies_to and type(c.applies_to) == "table" and order.items then
+    local sku_allowed = {}
+    for _, sku in ipairs(c.applies_to) do sku_allowed[sku] = true end
+    local ok_any = false
+    for _, it in ipairs(order.items) do
+      if sku_allowed[it.sku] then ok_any = true break end
+    end
+    if not ok_any then return false, "coupon_not_applicable" end
+  end
   return true
 end
 
@@ -258,6 +271,9 @@ function handlers.ApplyCoupon(cmd)
   local order = state.orders[cmd.payload.orderId]
   if not order or not order.totalAmount then
     return err(cmd.requestId, "NOT_FOUND", "order not found or no total")
+  end
+  if order.coupon then
+    return err(cmd.requestId, "INVALID_STATE", "coupon_already_applied")
   end
   local ok_coupon, reason = is_coupon_valid(cmd.payload.code, order)
   if not ok_coupon then
