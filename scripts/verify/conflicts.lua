@@ -219,6 +219,28 @@ do
   assert_eq(r1.payload.draftKey, r2.payload.draftKey, "idempotent payload same")
 end
 
+-- order status idempotency: first write wins
+do
+  local write = require("ao.write.process")
+  local rid = "rid-order-1"
+  local cmd = with_req({
+    action = "UpsertOrderStatus",
+    requestId = rid,
+    role = "support",
+    payload = { orderId = "order-xyz", status = "paid", totalAmount = 10, currency = "USD" },
+  })
+  local r1 = write.route(cmd)
+  local r2 = write.route(with_req({
+    action = "UpsertOrderStatus",
+    requestId = rid,
+    role = "support",
+    payload = { orderId = "order-xyz", status = "shipped", totalAmount = 20, currency = "EUR" },
+  }))
+  assert_eq(r1.payload.status, "paid", "first status kept")
+  assert_eq(r2.payload.status, "paid", "replayed status unchanged")
+  assert_eq(r2.payload.totalAmount, 10, "replayed amount unchanged")
+end
+
 -- negative role tests for protected actions
 do
   local write = require("ao.write.process")

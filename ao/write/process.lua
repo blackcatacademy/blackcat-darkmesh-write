@@ -177,9 +177,18 @@ function handlers.UpsertOrderStatus(cmd)
   state.orders[cmd.payload.orderId] = {
     status = cmd.payload.status,
     reason = cmd.payload.reason,
+    totalAmount = cmd.payload.totalAmount,
+    currency = cmd.payload.currency,
+    vatRate = cmd.payload.vatRate,
     updatedAt = cmd.timestamp,
   }
-  return ok(cmd.requestId, { orderId = cmd.payload.orderId, status = cmd.payload.status })
+  return ok(cmd.requestId, {
+    orderId = cmd.payload.orderId,
+    status = cmd.payload.status,
+    totalAmount = cmd.payload.totalAmount,
+    currency = cmd.payload.currency,
+    vatRate = cmd.payload.vatRate,
+  })
 end
 
 function handlers.IssueRefund(cmd)

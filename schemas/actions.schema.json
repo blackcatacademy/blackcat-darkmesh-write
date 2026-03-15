@@ -131,9 +131,12 @@
       "type": "object",
       "required": ["orderId", "status"],
       "properties": {
-        "orderId": { "type": "string" },
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "status": { "type": "string", "enum": ["created", "paid", "shipped", "delivered", "cancelled", "refunded"] },
-        "reason": { "type": "string" }
+        "reason": { "type": "string" },
+        "totalAmount": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK", "CHF", "JPY", "AUD", "CAD"] },
+        "vatRate": { "type": "number", "minimum": 0, "maximum": 1 }
       },
       "additionalProperties": false
     },
