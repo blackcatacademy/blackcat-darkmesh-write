@@ -9,19 +9,39 @@ local retry_limit = tonumber(os.getenv("NOTIFY_MAX_RETRIES") or "5")
 local prom = os.getenv("PROM_FORMAT") == "1"
 
 local templates = {
-  OrderCreated = function(ev) return string.format("Email: Order %s created, total %.2f %s", ev.orderId or "?", ev.totalAmount or 0, ev.currency or "") end,
-  PaymentCaptured = function(ev) return string.format("Email: Payment %s captured for order %s", ev.paymentId or "?", ev.orderId or "?") end,
-  ShipmentUpdated = function(ev) return string.format("Email: Shipment %s is %s", ev.shipmentId or "?", ev.status or "updated") end,
-  ReturnUpdated = function(ev) return string.format("Email: Return %s is %s", ev.returnId or "?", ev.status or "updated") end,
+  OrderCreated = function(ev) return string.format("Order %s created, total %.2f %s", ev.orderId or "?", ev.totalAmount or 0, ev.currency or "") end,
+  PaymentCaptured = function(ev) return string.format("Payment %s captured for order %s", ev.paymentId or "?", ev.orderId or "?") end,
+  ShipmentUpdated = function(ev) return string.format("Shipment %s is %s", ev.shipmentId or "?", ev.status or "updated") end,
+  ReturnUpdated = function(ev) return string.format("Return %s is %s", ev.returnId or "?", ev.status or "updated") end,
 }
 
-local function deliver(ev)
-  local tmpl = templates[ev.type]
-  if tmpl then
-    print(tmpl(ev))
-    return true
+local function send_email(text)
+  local hook = os.getenv("NOTIFY_EMAIL_WEBHOOK")
+  if hook and hook ~= "" then
+    os.execute(string.format("curl -sS -X POST -H 'Content-Type: text/plain' --data %q %q >/dev/null", text, hook))
+  else
+    print("EMAIL " .. text)
   end
-  return false
+end
+
+local function send_sms(text)
+  local hook = os.getenv("NOTIFY_SMS_WEBHOOK")
+  if hook and hook ~= "" then
+    os.execute(string.format("curl -sS -X POST -H 'Content-Type: text/plain' --data %q %q >/dev/null", text, hook))
+  else
+    print("SMS " .. text)
+  end
+end
+
+local function deliver(ev)
+    local tmpl = templates[ev.type]
+    if tmpl then
+      local text = tmpl(ev)
+      send_email(text)
+      send_sms(text)
+      return true
+    end
+    return false
 end
 
 local function run_once()

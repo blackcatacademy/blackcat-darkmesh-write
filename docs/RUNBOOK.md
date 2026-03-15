@@ -18,6 +18,16 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+## 3‑DS / SCA callback (PaymentReturn)
+- Frontend/resolver should POST `PaymentReturn` to write AO after the user finishes the provider challenge/redirect:
+  - provider: stripe|paypal|gopay
+  - paymentId: internal or provider id
+  - status: provider callback status
+  - payload: raw provider payload (used for status mapping)
+  - redirectUrl: optional return URL (Stripe confirm uses it)
+- Write maps provider payload to internal status and reuses ConfirmPayment when needed.
+- On success, a `PaymentStatusChanged` outbox event is emitted; downstream AO/resolver should update UI.
+
 ## Key rotation SOP (ed25519)
 - Rotate every 90 days or on incident.
 - Generate new keypair; install pubkey at `WRITE_SIG_PUBLIC`; record `sha256sum` in vault.
