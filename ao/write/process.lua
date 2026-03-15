@@ -82,6 +82,7 @@ local state = {
   submissions = {},   -- formId -> list of submissions
   translations = {},  -- taskId -> { siteId, pageId, sourceLocale, targetLocale, status, draft, reviewer, history }
   locale_routes = {}, -- siteId -> locale -> path -> target
+  form_webhooks = {}, -- formId -> queue of webhook deliveries
 }
 
 -- load persisted carts if available
@@ -130,6 +131,8 @@ local role_policy = {
   ListTranslations = { "editor", "publisher", "admin" },
   RegisterLocaleRoute = { "editor", "publisher", "admin" },
   GetLocaleRoute = { "*", "viewer", "editor", "publisher", "admin" },
+  RunFormWebhooks = { "admin", "publisher" },
+  RetrySubmission = { "admin", "publisher" },
 }
 
 local function b64url(x)
@@ -415,6 +418,16 @@ function handlers.SubmitForm(cmd)
       payload = record,
       requestId = cmd.requestId,
     })
+    state.form_webhooks[cmd.payload.formId] = state.form_webhooks[cmd.payload.formId] or {}
+    table.insert(state.form_webhooks[cmd.payload.formId], {
+      id = "wh_" .. submissionId .. "_" .. tostring(math.random(0, 9999)),
+      url = wh.url,
+      secret = wh.secret,
+      payload = record,
+      status = "pending",
+      attempts = 0,
+      nextAttempt = cmd.timestamp,
+    })
   end
   return ok(cmd.requestId, { formId = cmd.payload.formId, stored = true, submissionId = submissionId })
 end
@@ -430,6 +443,73 @@ function handlers.ListSubmissions(cmd)
     table.insert(slice, list[i])
   end
   return ok(cmd.requestId, { total = #list, items = slice })
+end
+
+local function deliver_webhook(entry)
+  local tmp = os.tmpname()
+  local ok_json, cjson = pcall(require, "cjson")
+  local body = ok_json and cjson.encode(entry.payload) or ""
+  local f = io.open(tmp, "w")
+  if f then
+    f:write(body)
+    f:close()
+  end
+  local timeout = tonumber(os.getenv("FORM_WEBHOOK_TIMEOUT") or "5")
+  local cmd = string.format(
+    "curl -sS --max-time %d -X POST '%s' -H 'Content-Type: application/json'%s --data-binary @%s",
+    timeout,
+    entry.url,
+    entry.secret and (" -H 'X-Webhook-Secret: " .. entry.secret .. "'") or "",
+    tmp
+  )
+  local rc = os.execute(cmd)
+  os.remove(tmp)
+  return rc == true or rc == 0
+end
+
+function handlers.RunFormWebhooks(cmd)
+  local max_attempts = tonumber(os.getenv("FORM_WEBHOOK_MAX_ATTEMPTS") or "5")
+  local now = os.time()
+  local delivered, failed = 0, 0
+  for formId, queue in pairs(state.form_webhooks) do
+    local remaining = {}
+    for _, entry in ipairs(queue) do
+      if entry.status == "pending" and entry.nextAttempt <= now then
+        local ok = deliver_webhook(entry)
+        entry.attempts = entry.attempts + 1
+        if ok then
+          entry.status = "sent"
+          delivered = delivered + 1
+        elseif entry.attempts >= max_attempts then
+          entry.status = "failed"
+          failed = failed + 1
+        else
+          entry.nextAttempt = now + math.min(300, 2 ^ entry.attempts) -- exponential backoff capped at 5m
+        end
+      end
+      table.insert(remaining, entry)
+    end
+    state.form_webhooks[formId] = remaining
+  end
+  return ok(cmd.requestId, { delivered = delivered, failed = failed })
+end
+
+function handlers.RetrySubmission(cmd)
+  local formId = cmd.payload.formId
+  local submissionId = cmd.payload.submissionId
+  if not (formId and submissionId) then
+    return err(cmd.requestId, "INVALID_INPUT", "formId and submissionId required")
+  end
+  local queue = state.form_webhooks[formId] or {}
+  local bumped = 0
+  for _, e in ipairs(queue) do
+    if e.payload and e.payload.id == submissionId then
+      e.status = "pending"
+      e.nextAttempt = os.time()
+      bumped = bumped + 1
+    end
+  end
+  return ok(cmd.requestId, { reset = bumped })
 end
 
 -- Locale routing ----------------------------------------------------------
