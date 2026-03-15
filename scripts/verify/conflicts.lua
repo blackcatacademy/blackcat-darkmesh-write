@@ -72,6 +72,19 @@ do
   assert_status(resp, "ERROR", "forbidden role")
 end
 
+-- missing role for action that requires one
+do
+  local write = require("ao.write.process")
+  local cmd = with_req({
+    action = "UpsertInventory",
+    role = nil,
+    payload = { siteId = "s1", sku = "sku-rl-1", quantity = 3, location = "wh-x" },
+  })
+  cmd.role = nil
+  local resp = write.route(cmd)
+  assert_status(resp, "ERROR", "missing role")
+end
+
 -- bad signature (hmac mismatch)
 do
   _G.WRITE_SIG_TYPE = "hmac"
@@ -92,6 +105,67 @@ do
   _G.WRITE_SIG_TYPE = nil
   package.loaded["ao.shared.auth"] = nil
   package.loaded["ao.write.process"] = nil
+end
+
+-- bad ed25519 signature
+do
+  local pub = [[-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAgN7aX6ixkmKuuNHYsYvwdivEafgAvFp8Z64KbjsggqU=
+-----END PUBLIC KEY-----]]
+  local pub_path = os.tmpname() .. "-ed25519.pub"
+  local f = assert(io.open(pub_path, "w")); f:write(pub); f:close()
+  os.setenv = os.setenv or function() end
+  os.setenv("WRITE_SIG_TYPE", "ed25519")
+  os.setenv("WRITE_SIG_PUBLIC", pub_path)
+  _G.WRITE_SIG_TYPE = "ed25519"
+  _G.WRITE_SIG_PUBLIC = pub_path
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
+  local write = require("ao.write.process")
+  local resp = write.route(with_req({
+    action = "SaveDraftPage",
+    signature = "deadbeef",
+    payload = { siteId = "s-ed", pageId = "p-ed", locale = "en", blocks = {} },
+  }))
+  assert_status(resp, "ERROR", "bad ed25519 signature")
+  os.setenv("WRITE_SIG_TYPE", nil)
+  os.setenv("WRITE_SIG_PUBLIC", nil)
+  _G.WRITE_SIG_TYPE = nil
+  _G.WRITE_SIG_PUBLIC = nil
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
+  os.remove(pub_path)
+end
+
+-- bad ecdsa signature
+do
+  local pub = [[-----BEGIN PUBLIC KEY-----
+MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE6wLdystD5nq2WEYLRh3SeDsICoZ6irM+
+tL6vhfVqlhK/SXxPxq8np5xpoE2mR7BncpsbR9f7DmqDveoxu48UUw==
+-----END PUBLIC KEY-----]]
+  local pub_path = os.tmpname() .. "-ecdsa.pub"
+  local f = assert(io.open(pub_path, "w")); f:write(pub); f:close()
+  os.setenv = os.setenv or function() end
+  os.setenv("WRITE_SIG_TYPE", "ecdsa")
+  os.setenv("WRITE_SIG_PUBLIC", pub_path)
+  _G.WRITE_SIG_TYPE = "ecdsa"
+  _G.WRITE_SIG_PUBLIC = pub_path
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
+  local write = require("ao.write.process")
+  local resp = write.route(with_req({
+    action = "SaveDraftPage",
+    signature = "cafebabe",
+    payload = { siteId = "s-ec", pageId = "p-ec", locale = "en", blocks = {} },
+  }))
+  assert_status(resp, "ERROR", "bad ecdsa signature")
+  os.setenv("WRITE_SIG_TYPE", nil)
+  os.setenv("WRITE_SIG_PUBLIC", nil)
+  _G.WRITE_SIG_TYPE = nil
+  _G.WRITE_SIG_PUBLIC = nil
+  package.loaded["ao.shared.auth"] = nil
+  package.loaded["ao.write.process"] = nil
+  os.remove(pub_path)
 end
 
 -- missing actor/tenant

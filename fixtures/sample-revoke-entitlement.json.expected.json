@@ -1,0 +1,1 @@
+{"status":"OK","requestId":"rid-sample-revoke-001","payload":{"subject":"user-1","asset":"asset-1","revoked":true}}

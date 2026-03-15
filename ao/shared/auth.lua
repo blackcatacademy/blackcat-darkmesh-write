@@ -53,6 +53,9 @@ local nonce_store = {}
 local RL_WINDOW = tonumber(os.getenv("WRITE_RL_WINDOW_SECONDS") or "60")
 local RL_MAX = tonumber(os.getenv("WRITE_RL_MAX_REQUESTS") or "200")
 local rate_store = {}
+local function getenv(name)
+  return os.getenv(name) or _G[name]
+end
 
 local function prune_nonces()
   local now = os.time()
@@ -109,17 +112,17 @@ end
 --  WRITE_SIG_PUBLIC=/path/to/pubkey (ed25519/ecdsa PEM)
 --  WRITE_SIG_SECRET=... (hmac)
 function Auth.verify_detached(message, signature_hex)
-  local sig_type = os.getenv("WRITE_SIG_TYPE") or "none"
+  local sig_type = getenv("WRITE_SIG_TYPE") or "none"
   if sig_type == "ed25519" then
-    local pub = os.getenv("WRITE_SIG_PUBLIC")
+    local pub = getenv("WRITE_SIG_PUBLIC")
     if not pub then return false, "missing_public_key" end
     return crypto.verify_ed25519(message, signature_hex, pub)
   elseif sig_type == "ecdsa" then
-    local pub = os.getenv("WRITE_SIG_PUBLIC")
+    local pub = getenv("WRITE_SIG_PUBLIC")
     if not pub then return false, "missing_public_key" end
     return crypto.verify_ecdsa_sha256(message, signature_hex, pub)
   elseif sig_type == "hmac" then
-    local secret = os.getenv("WRITE_SIG_SECRET")
+    local secret = getenv("WRITE_SIG_SECRET")
     if not secret then return false, "missing_secret" end
     return crypto.verify_hmac_sha256(message, secret, signature_hex)
   end

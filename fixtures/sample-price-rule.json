@@ -1,0 +1,16 @@
+{
+  "action": "UpsertPriceRule",
+  "requestId": "rid-sample-price-001",
+  "actor": "pricing-1",
+  "role": "pricing-admin",
+  "tenant": "tenant-1",
+  "timestamp": "2026-03-15T00:04:00Z",
+  "nonce": "nonce-sample-price-001",
+  "signatureRef": "sigref-sample-price-001",
+  "payload": {
+    "siteId": "site-1",
+    "ruleId": "rule-1",
+    "formula": "price*0.9",
+    "active": true
+  }
+}

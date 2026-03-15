@@ -75,23 +75,24 @@ function Bridge.forward_event(ev)
   local expected_hash = ev.expectedResponseHash or os.getenv("AO_EXPECT_RESPONSE_HASH")
   for attempt = 1, retries do
     local ok, status, resp_body = post(body)
+    local resp_hash
+    if resp_body and #resp_body > 0 then
+      resp_hash = sha256_str(resp_body)
+    end
     if ok then
       if expected_hash then
-        if resp_body and #resp_body > 0 then
-          local hash = sha256_str(resp_body)
-          if hash and hash:lower() ~= expected_hash:lower() then
-            ok = false
-            status = "response_hash_mismatch"
-          end
+        if resp_hash and resp_hash:lower() ~= expected_hash:lower() then
+          ok = false
+          status = "response_hash_mismatch"
         end
       end
-      if ok then return true, status end
+      if ok then return true, status, resp_hash end
     end
     if attempt < retries then
       local jitter = math.random() * 0.5 + 0.75
       sleep(backoff_ms * jitter)
     else
-      return false, status
+      return false, status, resp_hash
     end
   end
 end

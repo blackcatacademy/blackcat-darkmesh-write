@@ -1,0 +1,15 @@
+{
+  "action": "UpsertOrderStatus",
+  "requestId": "rid-sample-order-001",
+  "actor": "support-1",
+  "role": "support",
+  "tenant": "tenant-1",
+  "timestamp": "2026-03-15T00:07:00Z",
+  "nonce": "nonce-sample-order-001",
+  "signatureRef": "sigref-sample-order-001",
+  "payload": {
+    "orderId": "order-1",
+    "status": "paid",
+    "reason": "test payment"
+  }
+}

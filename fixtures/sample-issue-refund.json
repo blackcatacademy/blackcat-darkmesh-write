@@ -1,0 +1,15 @@
+{
+  "action": "IssueRefund",
+  "requestId": "rid-refund-001",
+  "actor": "support-1",
+  "role": "support",
+  "tenant": "tenant-1",
+  "timestamp": "2026-03-15T00:06:00Z",
+  "nonce": "nonce-refund-001",
+  "signatureRef": "sigref-refund-001",
+  "payload": {
+    "orderId": "order-123",
+    "amount": 25.5,
+    "currency": "USD"
+  }
+}

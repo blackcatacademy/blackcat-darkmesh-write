@@ -11,6 +11,17 @@ local WAL_PATH = os.getenv("WRITE_WAL_PATH")
 
 local M = {}
 
+local function sha256_str(str)
+  local tmp = os.tmpname()
+  local f = io.open(tmp, "w"); if not f then return nil end
+  f:write(str); f:close()
+  local p = io.popen("sha256sum " .. tmp .. " 2>/dev/null")
+  local out = p and p:read("*a") or ""
+  if p then p:close() end
+  os.remove(tmp)
+  return out:match("^(%w+)")
+end
+
 -- simple in-memory state; AO runtime would persist
 local state = {
   drafts = {},        -- key: siteId:pageId -> payload
@@ -242,9 +253,18 @@ function M.route(command)
   if WAL_PATH then
     local ok, cjson = pcall(require, "cjson")
     if ok then
+      local req_json = cjson.encode(command)
+      local resp_json = cjson.encode(response)
       local f = io.open(WAL_PATH, "a")
       if f then
-        f:write(cjson.encode({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), req = command.requestId, action = command.action, status = response.status }))
+        f:write(cjson.encode({
+          ts = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+          req = command.requestId,
+          action = command.action,
+          status = response.status,
+          reqHash = sha256_str(req_json),
+          respHash = sha256_str(resp_json),
+        }))
         f:write("\n")
         f:close()
       end
