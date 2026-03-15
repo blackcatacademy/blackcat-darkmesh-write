@@ -19,16 +19,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lua5.4
 
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64.tar.gz -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+
       - name: Preflight (schemas + Lua syntax + fixtures)
         env:
           RUN_BATCH: 1
           RUN_DEPS_CHECK: 1
         run: scripts/verify/preflight.sh
 
-      - name: Secret scan (gitleaks if available)
-        run: |
-          if command -v gitleaks >/dev/null 2>&1; then
-            gitleaks detect --no-git -v
-          else
-            echo "gitleaks not installed; skipping"
-          fi
+      - name: Secret scan (gitleaks)
+        run: gitleaks detect --no-git -v

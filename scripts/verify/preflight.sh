@@ -93,4 +93,11 @@ LUA
     echo "[verify] fixtures batch run"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/cli/batch_run.lua"
   fi
+  if [ "${RUN_CHECKSUM_ALERT:-0}" -eq 1 ]; then
+    echo "[verify] checksum alert"
+    WRITE_WAL_PATH="${WRITE_WAL_PATH:-dev/write-wal.ndjson}" \
+    AO_QUEUE_PATH="${AO_QUEUE_PATH:-dev/outbox-queue.ndjson}" \
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" \
+    "$ROOT_DIR/scripts/verify/checksum_alert.sh"
+  fi
 fi
