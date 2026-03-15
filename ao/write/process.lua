@@ -1331,6 +1331,9 @@ function handlers.ProviderWebhook(cmd)
       ["charge.dispute.closed"] = "captured",
       ["charge.dispute.funds_withdrawn"] = "disputed",
       ["charge.dispute.funds_reinstated"] = "captured",
+      ["charge.dispute.accepted"] = "disputed",
+      ["charge.dispute.expired"] = "disputed",
+      ["charge.dispute.escalated"] = "disputed",
     }
     local new_status = status_map[cmd.payload.eventType] or "pending"
     for pid, p in pairs(state.payments) do
@@ -1339,7 +1342,7 @@ function handlers.ProviderWebhook(cmd)
           state.payment_disputes[pid] = state.payment_disputes[pid] or {}
           state.payment_disputes[pid].status = new_status
           state.payment_disputes[pid].reason = cmd.payload.reason
-          state.payment_disputes[pid].evidence = cmd.payload.evidence
+          state.payment_disputes[pid].evidence = cmd.payload.evidence or state.payment_disputes[pid].evidence
         end
         set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
         return ok(cmd.requestId, { paymentId = pid, status = new_status })
@@ -1376,6 +1379,8 @@ function handlers.ProviderWebhook(cmd)
       ["CUSTOMER.DISPUTE.CREATED"] = "disputed",
       ["CUSTOMER.DISPUTE.UPDATED"] = "disputed",
       ["CUSTOMER.DISPUTE.RESOLVED"] = "captured",
+      ["CUSTOMER.DISPUTE.EXPIRED"] = "disputed",
+      ["CUSTOMER.DISPUTE.ESCALATED"] = "disputed",
     }
     local new_status = status_map[cmd.payload.eventType] or "pending"
     for pid, p in pairs(state.payments) do
@@ -1384,6 +1389,7 @@ function handlers.ProviderWebhook(cmd)
           state.payment_disputes[pid] = state.payment_disputes[pid] or {}
           state.payment_disputes[pid].status = new_status
           state.payment_disputes[pid].reason = cmd.payload.reason
+          state.payment_disputes[pid].evidence = cmd.payload.evidence or state.payment_disputes[pid].evidence
         end
         set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
         return ok(cmd.requestId, { paymentId = pid, status = new_status })
