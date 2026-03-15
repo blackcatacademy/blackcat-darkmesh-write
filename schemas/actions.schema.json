@@ -293,6 +293,16 @@
       },
       "additionalProperties": false
     },
+    "ConfirmPayment": {
+      "type": "object",
+      "required": ["paymentId"],
+      "properties": {
+        "paymentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "provider": { "type": "string", "enum": ["gopay", "stripe", "paypal", "manual"] },
+        "returnUrl": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "UpsertShipmentStatus": {
       "type": "object",
       "required": ["shipmentId", "status", "orderId"],
@@ -301,6 +311,29 @@
         "status": { "type": "string", "enum": ["pending", "packed", "shipped", "delivered", "lost", "returned"] },
         "tracking": { "type": "string" },
         "carrier": { "type": "string" },
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      },
+      "additionalProperties": false
+    },
+    "CreateShippingLabel": {
+      "type": "object",
+      "required": ["shipmentId", "carrier", "service", "orderId"],
+      "properties": {
+        "shipmentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "carrier": { "type": "string" },
+        "service": { "type": "string" },
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      },
+      "additionalProperties": false
+    },
+    "UpdateShipmentTracking": {
+      "type": "object",
+      "required": ["shipmentId", "tracking", "orderId"],
+      "properties": {
+        "shipmentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "tracking": { "type": "string" },
+        "carrier": { "type": "string" },
+        "eta": { "type": "string" },
         "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
       },
       "additionalProperties": false

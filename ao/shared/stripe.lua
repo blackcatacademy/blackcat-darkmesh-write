@@ -66,6 +66,17 @@ function Stripe.capture(intent_id)
   return true
 end
 
+function Stripe.confirm(intent_id, return_url)
+  local key = os.getenv("STRIPE_API_KEY")
+  if key then
+    local resp = api_request("POST", "/payment_intents/" .. intent_id .. "/confirm", {
+      return_url = return_url,
+    })
+    return resp ~= nil, resp and resp.error and resp.error.message, resp
+  end
+  return true
+end
+
 function Stripe.void(intent_id, reason)
   local key = os.getenv("STRIPE_API_KEY")
   if key then

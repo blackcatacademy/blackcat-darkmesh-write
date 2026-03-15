@@ -658,6 +658,38 @@ function handlers.CapturePayment(cmd)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "captured" })
 end
 
+function handlers.ConfirmPayment(cmd)
+  local payment = state.payments[cmd.payload.paymentId]
+  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  if payment.provider == "stripe" and payment.providerPaymentId then
+    if stripe_ok then
+      local ok, perr, resp = stripe.confirm(payment.providerPaymentId, cmd.payload.returnUrl)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+      -- If Stripe still requires action, keep status; else mark captured
+      local status = (resp and resp.status) or "requires_capture"
+      if status == "requires_action" or status == "processing" then
+        payment.status = "requires_capture"
+      elseif status == "succeeded" then
+        payment.status = "captured"
+      end
+    end
+  end
+  if payment.provider == "paypal" and payment.providerPaymentId then
+    if paypal_ok then
+      local ok, perr = paypal.capture(payment.providerPaymentId)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+      payment.status = "captured"
+    end
+  end
+  enqueue_event({
+    type = "PaymentStatusChanged",
+    paymentId = cmd.payload.paymentId,
+    status = payment.status,
+    requestId = cmd.requestId,
+  })
+  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
+end
+
 function handlers.VoidPayment(cmd)
   local payment = state.payments[cmd.payload.paymentId]
   if not payment then
@@ -699,6 +731,7 @@ function handlers.UpsertShipmentStatus(cmd)
     tracking = cmd.payload.tracking,
     carrier = cmd.payload.carrier,
     orderId = cmd.payload.orderId,
+    eta = cmd.payload.eta,
     updatedAt = cmd.timestamp,
   }
   -- release reservations when shipped/delivered
@@ -725,6 +758,40 @@ function handlers.UpsertShipmentStatus(cmd)
   }
   enqueue_event(ev)
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = cmd.payload.status })
+end
+
+function handlers.CreateShippingLabel(cmd)
+  state.shipments[cmd.payload.shipmentId] = state.shipments[cmd.payload.shipmentId] or {}
+  local label_url = string.format("https://labels.example/label/%s.pdf", cmd.payload.shipmentId)
+  state.shipments[cmd.payload.shipmentId].labelUrl = label_url
+  state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier
+  state.shipments[cmd.payload.shipmentId].service = cmd.payload.service
+  state.shipments[cmd.payload.shipmentId].orderId = cmd.payload.orderId
+  enqueue_event({
+    type = "ShippingLabelCreated",
+    shipmentId = cmd.payload.shipmentId,
+    carrier = cmd.payload.carrier,
+    service = cmd.payload.service,
+    labelUrl = label_url,
+    orderId = cmd.payload.orderId,
+  })
+  return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, labelUrl = label_url })
+end
+
+function handlers.UpdateShipmentTracking(cmd)
+  state.shipments[cmd.payload.shipmentId] = state.shipments[cmd.payload.shipmentId] or {}
+  state.shipments[cmd.payload.shipmentId].tracking = cmd.payload.tracking
+  state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier or state.shipments[cmd.payload.shipmentId].carrier
+  state.shipments[cmd.payload.shipmentId].eta = cmd.payload.eta or state.shipments[cmd.payload.shipmentId].eta
+  enqueue_event({
+    type = "ShipmentTrackingUpdated",
+    shipmentId = cmd.payload.shipmentId,
+    tracking = cmd.payload.tracking,
+    carrier = state.shipments[cmd.payload.shipmentId].carrier,
+    eta = state.shipments[cmd.payload.shipmentId].eta,
+    orderId = cmd.payload.orderId,
+  })
+  return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, tracking = cmd.payload.tracking })
 end
 
 function handlers.UpsertReturnStatus(cmd)
