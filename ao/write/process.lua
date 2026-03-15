@@ -78,6 +78,8 @@ local state = {
   locks = {},         -- contentKey -> { owner, expiresAt }
   comments = {},      -- contentKey -> list of { author, text, ts }
   scheduled = {},     -- list of { contentKey, siteId, pageId, versionId, publishAt }
+  forms = {},         -- formId -> { schema, spam, webhooks }
+  submissions = {},   -- formId -> list of submissions
 }
 
 -- load persisted carts if available
@@ -117,6 +119,9 @@ local role_policy = {
   LockContent = { "editor", "publisher", "admin" },
   UnlockContent = { "editor", "publisher", "admin" },
   AddContentComment = { "editor", "publisher", "admin" },
+  CreateForm = { "editor", "publisher", "admin" },
+  SubmitForm = { "*" },
+  ListSubmissions = { "editor", "publisher", "admin" },
 }
 
 local function b64url(x)
@@ -298,6 +303,105 @@ function handlers.UpsertRoute(cmd)
   state.routes[siteId] = state.routes[siteId] or {}
   state.routes[siteId][cmd.payload.path] = cmd.payload.target
   return ok(cmd.requestId, { path = cmd.payload.path })
+end
+
+function handlers.CreateForm(cmd)
+  local formId = cmd.payload.formId or ("form_" .. tostring(os.time()) .. "_" .. math.random(0, 9999))
+  state.forms[formId] = {
+    schema = cmd.payload.schema or {},
+    spam = cmd.payload.spam or {},
+    webhooks = cmd.payload.webhooks or {},
+    createdAt = cmd.timestamp,
+    createdBy = cmd.actor,
+  }
+  return ok(cmd.requestId, { formId = formId })
+end
+
+local function is_spam(form, submission)
+  local hp = form.spam and form.spam.honeypot
+  if hp and submission[hp] and submission[hp] ~= "" then
+    return true, "honeypot"
+  end
+  local required = form.spam and form.spam.required_fields
+  if required then
+    for _, f in ipairs(required) do
+      if submission[f] == nil or submission[f] == "" then
+        return true, "missing_required"
+      end
+    end
+  end
+  return false
+end
+
+local function rate_limit_form(formId, ip)
+  local key = "rate:" .. formId .. ":" .. (ip or "unknown")
+  local bucket = state.otp_rate[key] or { count = 0, reset = os.time() + 60 }
+  if os.time() > bucket.reset then
+    bucket.count = 0
+    bucket.reset = os.time() + 60
+  end
+  bucket.count = bucket.count + 1
+  state.otp_rate[key] = bucket
+  local max = tonumber(os.getenv("FORM_RATE_MAX") or "30")
+  if bucket.count > max then
+    return false
+  end
+  return true
+end
+
+function handlers.SubmitForm(cmd)
+  if not cmd.payload.formId then
+    return err(cmd.requestId, "INVALID_INPUT", "formId required")
+  end
+  local form = state.forms[cmd.payload.formId]
+  if not form then
+    return err(cmd.requestId, "NOT_FOUND", "form not found")
+  end
+  if not rate_limit_form(cmd.payload.formId, cmd.payload.ip) then
+    return err(cmd.requestId, "RATE_LIMITED", "too_many_submissions")
+  end
+  local spam, reason = is_spam(form, cmd.payload.data or {})
+  if spam then
+    return ok(cmd.requestId, { spam = true, reason = reason })
+  end
+  state.submissions[cmd.payload.formId] = state.submissions[cmd.payload.formId] or {}
+  local record = {
+    data = cmd.payload.data or {},
+    meta = { ip = cmd.payload.ip, ua = cmd.payload.ua },
+    ts = cmd.timestamp,
+  }
+  table.insert(state.submissions[cmd.payload.formId], record)
+  enqueue_event({
+    type = "FormSubmitted",
+    formId = cmd.payload.formId,
+    requestId = cmd.requestId,
+    ts = cmd.timestamp,
+  })
+  -- fire webhooks
+  for _, wh in ipairs(form.webhooks or {}) do
+    enqueue_event({
+      type = "FormWebhook",
+      formId = cmd.payload.formId,
+      url = wh.url,
+      secret = wh.secret,
+      payload = record,
+      requestId = cmd.requestId,
+    })
+  end
+  return ok(cmd.requestId, { formId = cmd.payload.formId, stored = true })
+end
+
+function handlers.ListSubmissions(cmd)
+  local formId = cmd.payload.formId
+  if not formId then return err(cmd.requestId, "INVALID_INPUT", "formId required") end
+  local list = state.submissions[formId] or {}
+  local limit = tonumber(cmd.payload.limit) or 100
+  local offset = tonumber(cmd.payload.offset) or 0
+  local slice = {}
+  for i = offset + 1, math.min(#list, offset + limit) do
+    table.insert(slice, list[i])
+  end
+  return ok(cmd.requestId, { total = #list, items = slice })
 end
 
 local function content_key(siteId, pageId)
