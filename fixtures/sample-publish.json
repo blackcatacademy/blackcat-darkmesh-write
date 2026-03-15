@@ -1,0 +1,16 @@
+{
+  "action": "PublishPageVersion",
+  "requestId": "rid-sample-publish-001",
+  "actor": "publisher-1",
+  "tenant": "site-1",
+  "timestamp": "2026-03-15T00:01:00Z",
+  "nonce": "nonce-sample-publish-001",
+  "signatureRef": "sigref-sample-publish-001",
+  "expectedVersion": "v0",
+  "payload": {
+    "siteId": "site-1",
+    "pageId": "home",
+    "versionId": "v1",
+    "manifestTx": "tx-sample-001"
+  }
+}

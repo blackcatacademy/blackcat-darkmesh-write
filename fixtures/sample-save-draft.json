@@ -1,0 +1,17 @@
+{
+  "action": "SaveDraftPage",
+  "requestId": "rid-sample-draft-001",
+  "actor": "editor-1",
+  "tenant": "site-1",
+  "timestamp": "2026-03-15T00:00:00Z",
+  "nonce": "nonce-sample-draft-001",
+  "signatureRef": "sigref-sample-draft-001",
+  "payload": {
+    "siteId": "site-1",
+    "pageId": "home",
+    "locale": "en",
+    "blocks": [
+      { "type": "hero", "title": "Hello" }
+    ]
+  }
+}

@@ -52,7 +52,7 @@ scripts/cli/       # local helpers (run command)
 - Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` to only log. Router will best-effort POST publish events when set.
 
 ## CLI helpers
-- `lua scripts/cli/run_command.lua ./fixtures/sample-command.json` — route a JSON command locally and print the response (uses in-memory state).
+- `lua scripts/cli/run_command.lua ./fixtures/sample-save-draft.json` — route a JSON command locally and print the response (uses in-memory state). A publish sample is at `fixtures/sample-publish.json`.
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
