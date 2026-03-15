@@ -372,6 +372,19 @@ do
   assert_status(otp_exchange, "OK", "otp exchange")
   assert(otp_exchange.payload.token and #otp_exchange.payload.token > 10, "otp token present")
 
+  -- Sessions
+  local sess = write.route(with_req({
+    action = "IssueSession",
+    payload = { sub = "user-1", tenant = "tenant-1", role = "editor", ttl = 120 },
+  }))
+  assert_status(sess, "OK", "issue session")
+  assert(sess.payload.token and #sess.payload.token > 10, "session token present")
+  local rev = write.route(with_req({
+    action = "RevokeSession",
+    payload = { sessionId = sess.payload.sessionId },
+  }))
+  assert_status(rev, "OK", "revoke session")
+
   -- scope enforcement: coupon applies only to sku-2
   local scoped = write.route(with_req({
     action = "UpsertCoupon",

@@ -26,6 +26,26 @@
       },
       "additionalProperties": false
     },
+    "IssueSession": {
+      "type": "object",
+      "required": ["sub", "tenant"],
+      "properties": {
+        "sub": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tenant": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "ttl": { "type": "integer", "minimum": 60, "maximum": 86400 },
+        "deviceToken": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "additionalProperties": false
+    },
+    "RevokeSession": {
+      "type": "object",
+      "required": ["sessionId"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "additionalProperties": false
+    },
     "ExchangeOtp": {
       "type": "object",
       "required": ["code"],

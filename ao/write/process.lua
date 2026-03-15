@@ -7,6 +7,7 @@ local audit = require("ao.shared.audit")
 local storage = require("ao.shared.storage")
 local bridge = require("ao.shared.bridge")
 local crypto = require("ao.shared.crypto")
+local jwt = require("ao.shared.jwt")
 local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
 local stripe_ok, stripe = pcall(require, "ao.shared.stripe")
 local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
@@ -71,6 +72,7 @@ local state = {
   otp_rate = {},      -- key -> { count, reset }
   payment_tokens = {}, -- customerId -> provider -> token
   payment_disputes = {}, -- paymentId -> { status, reason, evidence }
+  sessions = {},      -- sessionId -> { sub, tenant, role, exp, device }
 }
 
 -- load persisted carts if available
@@ -108,6 +110,10 @@ local function otp_hash(code)
   local salt = os.getenv("OTP_HMAC_SECRET")
   if not salt or salt == "" then return code end -- fallback (plain)
   return crypto.hmac_sha256_hex(code, salt) or code
+end
+
+local function new_session_id()
+  return string.format("sess_%d_%06d", os.time(), math.random(0, 999999))
 end
 
 local function set_payment_status(pid, new_status, provider_status, req_id)
@@ -519,6 +525,31 @@ function handlers.ExchangeOtp(cmd)
     return err(cmd.requestId, "SERVER_ERROR", terr or "jwt_failed")
   end
   return ok(cmd.requestId, { token = token, exp = os.time() + ttl, role = entry.role, tenant = entry.tenant, sub = entry.sub })
+end
+
+-- Session issuance (short-lived JWT) and revocation
+function handlers.IssueSession(cmd)
+  local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv("SESSION_TTL_SECONDS") or "900")
+  if ttl < 60 then ttl = 60 end
+  if ttl > 86400 then ttl = 86400 end
+  local sub = cmd.payload.sub or cmd.actor
+  local tenant = cmd.payload.tenant or cmd.tenant
+  local role = cmd.payload.role or cmd.role or "user"
+  local token, terr = issue_jwt(sub, tenant, role, ttl)
+  if not token then
+    return err(cmd.requestId, "SERVER_ERROR", terr or "jwt_failed")
+  end
+  local sid = new_session_id()
+  state.sessions[sid] = { sub = sub, tenant = tenant, role = role, exp = os.time() + ttl, device = cmd.payload.deviceToken }
+  return ok(cmd.requestId, { sessionId = sid, token = token, exp = os.time() + ttl })
+end
+
+function handlers.RevokeSession(cmd)
+  if not cmd.payload.sessionId then
+    return err(cmd.requestId, "INVALID_INPUT", "sessionId required")
+  end
+  state.sessions[cmd.payload.sessionId] = nil
+  return ok(cmd.requestId, { revoked = cmd.payload.sessionId })
 end
 
 -- Cart & Order creation

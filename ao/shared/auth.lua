@@ -29,6 +29,8 @@ local role_policy = {
   UpsertProfile      = { "editor", "admin" },
   IssueOtp           = { "admin", "support" },
   ExchangeOtp        = { "admin", "support", "editor", "catalog-admin", "access-admin" },
+  IssueSession       = { "admin", "support" },
+  RevokeSession      = { "admin", "support" },
 }
 
 function Auth._set_flags(opts)
