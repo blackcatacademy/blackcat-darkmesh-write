@@ -1434,7 +1434,10 @@ function handlers.ProviderShippingWebhook(cmd)
   sh.carrier = cmd.payload.carrier or sh.carrier
   sh.labelUrl = cmd.payload.labelUrl or sh.labelUrl
   sh.eta = cmd.payload.eta or sh.eta
-  enqueue_event({
+  if os.getenv("CARRIER_TRACK_URL") and sh.tracking and (not sh.trackingUrl) then
+    sh.trackingUrl = string.format("%s/%s", os.getenv("CARRIER_TRACK_URL"), sh.tracking)
+  end
+  local ev = {
     type = "ShipmentUpdated",
     shipmentId = cmd.payload.shipmentId,
     orderId = sh.orderId,
@@ -1442,7 +1445,14 @@ function handlers.ProviderShippingWebhook(cmd)
     tracking = sh.tracking,
     carrier = sh.carrier,
     labelUrl = sh.labelUrl,
+    eta = sh.eta,
+  }
+  if OUTBOX_HMAC_SECRET then
+    ev.hmac = crypto.hmac_sha256_hex((sh.orderId or "") .. "|" .. (sh.status or "") .. "|" .. (sh.tracking or ""), OUTBOX_HMAC_SECRET)
+  end
+  enqueue_event({
     requestId = cmd.requestId,
+    event = ev,
   })
   if sh.orderId then
     enqueue_event({
