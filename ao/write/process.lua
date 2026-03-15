@@ -413,7 +413,11 @@ local function compute_totals(cart, coupon_code, vatRate, shipping, address)
   end
   local discount = 0
   if coupon_code then
-    local dummy_order = { totalAmount = subtotal, currency = cart.currency }
+    local dummy_order = {
+      totalAmount = subtotal,
+      currency = cart.currency,
+      items = cart.items,
+    }
     local ok_coupon, reason = is_coupon_valid(coupon_code, dummy_order)
     if not ok_coupon then
       return nil, reason

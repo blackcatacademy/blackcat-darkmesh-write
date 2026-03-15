@@ -259,6 +259,29 @@ do
   }))
   assert_status(apply_scope_fail, "ERROR", "scope mismatch")
   assert_eq(apply_scope_fail.code, "INVALID_STATE", "scope mismatch code")
+
+  -- CreateOrder should reject expired coupon when passed directly
+  local expired = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = {
+      code = "EXPIRED",
+      type = "fixed",
+      value = 5,
+      currency = "USD",
+      expiresAt = now - 10,
+    },
+  }))
+  assert_status(expired, "OK", "upsert expired coupon")
+  local cart5 = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart5", siteId = "s6", sku = "sku-1", qty = 1, price = 30, currency = "USD" },
+  }))
+  assert_status(cart5, "OK", "cart5 add")
+  local order_fail = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart5", customerId = "cust5", siteId = "s6", currency = "USD", coupon = "EXPIRED" },
+  }))
+  assert_status(order_fail, "ERROR", "expired coupon should fail in CreateOrder")
 end
 
 -- Unknown action
