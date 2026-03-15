@@ -51,6 +51,7 @@ scripts/bridge/    # stub forwarder from write outbox to -ao
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
 - `scripts/bridge/export_outbox.lua [outfile]` dumps outbox to NDJSON (default `dev/outbox.ndjson`) for offline inspection or manual upload.
+- `scripts/bridge/forward_outbox_http.lua` posts outbox events to `AO_ENDPOINT` (set `DRY_RUN=1` to log only; optional `AO_API_KEY`, `AO_SITE_ID` tag).
 
 ## Security Guard Rails
 - No secrets or raw keys in AO state, manifests, or adapters.
