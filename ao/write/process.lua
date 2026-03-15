@@ -795,6 +795,10 @@ function handlers.CreatePaymentIntent(cmd)
     end
   elseif provider == "stripe" then
     if stripe_ok then
+      if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
+        local token = state.payment_tokens[cmd.payload.customerId] and state.payment_tokens[cmd.payload.customerId].stripe
+        if token then cmd.payload.paymentMethodToken = token end
+      end
       providerPaymentId, gatewayUrl, status = stripe.create_payment({
         orderId = cmd.payload.orderId,
         amount = cmd.payload.amount,
@@ -808,6 +812,10 @@ function handlers.CreatePaymentIntent(cmd)
     end
   elseif provider == "paypal" then
     if paypal_ok then
+      if cmd.payload.customerId and not cmd.payload.paymentMethodToken then
+        local token = state.payment_tokens[cmd.payload.customerId] and state.payment_tokens[cmd.payload.customerId].paypal
+        if token then cmd.payload.paymentMethodToken = token end
+      end
       providerPaymentId, gatewayUrl, status = paypal.create_payment({
         orderId = cmd.payload.orderId,
         amount = cmd.payload.amount,
@@ -952,6 +960,12 @@ function handlers.PaymentReturn(cmd)
     if status == "requires_capture" then
       handlers.ConfirmPayment({ payload = { paymentId = cmd.payload.paymentId, provider = "stripe", returnUrl = cmd.payload.redirectUrl }, requestId = cmd.requestId })
       status = payment.status or status
+    end
+    if payment.providerPaymentId and stripe_ok then
+      local live_status = stripe.retrieve_status(payment.providerPaymentId)
+      if live_status then
+        status = stripe.status_from_payload({ status = live_status })
+      end
     end
   elseif cmd.payload.provider == "paypal" then
     status = paypal_ok and paypal.status_from_payload(cmd.payload.payload) or "pending"
@@ -1241,12 +1255,20 @@ function handlers.ProviderWebhook(cmd)
     local secret = os.getenv("PAYPAL_WEBHOOK_SECRET")
     local strict = os.getenv("PAYPAL_WEBHOOK_STRICT") == "1"
     if (secret or strict) and cmd.payload.raw and cmd.payload.raw.body then
-      local sig = cmd.payload.raw.headers and (cmd.payload.raw.headers["PayPal-Transmission-Sig"] or cmd.payload.raw.headers["PP-Signature"])
+      local headers = cmd.payload.raw.headers or {}
+      local sig = headers["PayPal-Transmission-Sig"] or headers["PP-Signature"]
       if strict and not sig then return err(cmd.requestId, "UNAUTHORIZED", "missing_signature") end
-      if sig then
-        local ok_sig = paypal_ok and paypal.verify_webhook(cmd.payload.raw.body, sig, secret)
-        if strict and not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+      local ok_sig = false
+      if paypal_ok then
+        if sig and secret then
+          ok_sig = paypal.verify_webhook(cmd.payload.raw.body, sig, secret)
+        end
+        if not ok_sig then
+          local remote_ok = select(1, paypal.verify_webhook_remote(cmd.payload.raw.body, headers))
+          ok_sig = remote_ok or ok_sig
+        end
       end
+      if strict and not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
     end
     local status_map = {
       ["PAYMENT.CAPTURE.COMPLETED"] = "captured",

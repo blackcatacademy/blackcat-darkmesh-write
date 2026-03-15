@@ -115,6 +115,21 @@ function Stripe.refund(intent_id, amount)
   return true
 end
 
+function Stripe.retrieve_status(intent_id)
+  local key = os.getenv("STRIPE_API_KEY")
+  if not key then return nil end
+  local url = "https://api.stripe.com/v1/payment_intents/" .. intent_id
+  local cmd = string.format("curl -sS -u %q: %s", key, url)
+  local fh = io.popen(cmd)
+  if not fh then return nil end
+  local body = fh:read("*a")
+  fh:close()
+  if not ok_json or not body then return nil end
+  local decoded = cjson.decode(body)
+  if not decoded then return nil end
+  return decoded.status
+end
+
 local function parse_sig_header(sig_header)
   local out = {}
   for part in string.gmatch(sig_header or "", "([^,]+)") do

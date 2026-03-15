@@ -20,11 +20,14 @@ local function api_token()
   return decoded and decoded.access_token
 end
 
+local function api_base()
+  return os.getenv("PAYPAL_API_BASE") or "https://api-m.sandbox.paypal.com"
+end
+
 local function api_request(method, path, payload)
   local token = api_token()
   if not token then return nil, "no_token" end
-  local base = os.getenv("PAYPAL_API_BASE") or "https://api-m.sandbox.paypal.com"
-  local url = base .. path
+  local url = api_base() .. path
   local data_arg = ""
   if payload then
     if not ok_json then return nil, "json_missing" end
@@ -121,6 +124,41 @@ function PayPal.verify_webhook(body, sig_header, secret)
   if not (body and sig_header and secret) then return false end
   local expected = crypto.hmac_sha256_hex(body, secret)
   return expected == sig_header
+end
+
+-- Official webhook verification via PayPal API (requires PAYPAL_WEBHOOK_ID)
+function PayPal.verify_webhook_remote(body, headers)
+  if not (ok_json and body and headers) then return false, "missing" end
+  local webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
+  if not webhook_id then return false, "no_webhook_id" end
+  local token = api_token()
+  if not token then return false, "no_token" end
+  local payload = {
+    auth_algo = headers["PayPal-Auth-Algo"],
+    cert_url = headers["PayPal-Cert-Url"],
+    transmission_id = headers["PayPal-Transmission-Id"],
+    transmission_sig = headers["PayPal-Transmission-Sig"] or headers["PayPal-Transmission-Signature"],
+    transmission_time = headers["PayPal-Transmission-Time"],
+    webhook_id = webhook_id,
+    webhook_event = ok_json and cjson.decode(body),
+  }
+  if not payload.webhook_event then return false, "decode_failed" end
+  local base = api_base()
+  local cmd = string.format(
+    "curl -sS -X POST %s/v1/notifications/verify-webhook-signature -H 'Content-Type: application/json' -H 'Authorization: Bearer %s' -d '%s'",
+    base,
+    token,
+    cjson.encode(payload)
+  )
+  local fh = io.popen(cmd)
+  if not fh then return false, "curl_failed" end
+  local resp_body = fh:read("*a") or ""
+  fh:close()
+  local resp = cjson.decode(resp_body)
+  if resp and resp.verification_status == "SUCCESS" then
+    return true
+  end
+  return false, "verification_failed"
 end
 
 function PayPal.status_from_payload(payload)
