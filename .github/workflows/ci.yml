@@ -19,6 +19,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lua5.4
 
+      - name: Install luacheck/stylua (optional)
+        run: |
+          if command -v luarocks >/dev/null 2>&1; then
+            luarocks install --local luacheck || true
+            luarocks install --local stylua || true
+            echo "$HOME/.luarocks/bin" >> $GITHUB_PATH
+          else
+            echo "luarocks not installed; skipping luacheck/stylua"
+          fi
+
       - name: Install gitleaks
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64.tar.gz -o /tmp/gitleaks.tar.gz
@@ -30,6 +40,20 @@ jobs:
           RUN_BATCH: 1
           RUN_DEPS_CHECK: 1
         run: scripts/verify/preflight.sh
+
+      - name: Arweave hash verify (optional)
+        if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        env:
+          ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
+          ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
+        run: scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
+
+      - name: Arweave hash verify (optional)
+        if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
+        env:
+          ARWEAVE_VERIFY_FILE: ${{ env.ARWEAVE_VERIFY_FILE }}
+          ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
+        run: scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
       - name: Secret scan (gitleaks)
         run: gitleaks detect --no-git -v

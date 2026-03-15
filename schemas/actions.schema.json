@@ -8,9 +8,9 @@
       "type": "object",
       "required": ["siteId", "pageId", "locale", "blocks"],
       "properties": {
-        "siteId": { "type": "string" },
-        "pageId": { "type": "string" },
-        "locale": { "type": "string" },
+        "siteId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "pageId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "locale": { "type": "string", "minLength": 2, "maxLength": 10 },
         "blocks": { "type": "array" }
       },
       "additionalProperties": false
@@ -19,10 +19,10 @@
       "type": "object",
       "required": ["siteId", "pageId", "versionId", "manifestTx"],
       "properties": {
-        "siteId": { "type": "string" },
-        "pageId": { "type": "string" },
-        "versionId": { "type": "string" },
-        "manifestTx": { "type": "string" }
+        "siteId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "pageId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "versionId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "manifestTx": { "type": "string", "minLength": 10 }
       },
       "additionalProperties": false
     },
@@ -30,8 +30,8 @@
       "type": "object",
       "required": ["siteId", "path", "target"],
       "properties": {
-        "siteId": { "type": "string" },
-        "path": { "type": "string" },
+        "siteId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "path": { "type": "string", "pattern": "^/[^\\s]*$" },
         "target": { "type": "string" }
       },
       "additionalProperties": false
@@ -89,8 +89,8 @@
       "type": "object",
       "required": ["siteId", "sku", "quantity"],
       "properties": {
-        "siteId": { "type": "string" },
-        "sku": { "type": "string" },
+        "siteId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "sku": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "quantity": { "type": "integer", "minimum": 0 },
         "location": { "type": "string" }
       },
@@ -143,7 +143,7 @@
       "properties": {
         "orderId": { "type": "string" },
         "amount": { "type": "number", "minimum": 0 },
-        "currency": { "type": "string" }
+        "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK"] }
       },
       "additionalProperties": false
     },
