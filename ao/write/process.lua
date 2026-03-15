@@ -9,11 +9,16 @@ local bridge = require("ao.shared.bridge")
 local crypto = require("ao.shared.crypto")
 local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
 local tax = require("ao.shared.tax")
+
+local function enqueue_event(ev)
+  local q = storage.get("outbox_queue") or {}
+  table.insert(q, { event = ev, status = "pending", attempts = 0, nextAttempt = os.time() })
+  storage.put("outbox_queue", q)
+  if os.getenv("WRITE_OUTBOX_PATH") then storage.persist(os.getenv("WRITE_OUTBOX_PATH")) end
+end
+-- legacy helper used by older code paths; now routes everything to the durable queue
 local function send_event(ev)
-  local ok, status = bridge.forward_event(ev)
-  if not ok then
-    storage.append("outbox_dlq", { event = ev, status = status, ts = os.time() })
-  end
+  enqueue_event(ev)
 end
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local WAL_PATH = os.getenv("WRITE_WAL_PATH")
@@ -93,10 +98,8 @@ function handlers.PublishPageVersion(cmd)
     local msg = (cmd.payload.siteId or "") .. "|" .. (cmd.payload.pageId or "") .. "|" .. (cmd.payload.versionId or "")
     ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
   end
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  bridge.forward_event(outbox[#outbox]) -- best-effort
+  enqueue_event(ev)
+  table.insert(outbox, ev) -- keep in-memory outbox for tests/introspection
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
 end
 
@@ -228,10 +231,7 @@ function handlers.IssueRefund(cmd)
     local msg = (cmd.payload.orderId or "") .. "|" .. tostring(cmd.payload.amount or "") .. "|" .. (cmd.payload.currency or "")
     ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
   end
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  send_event(outbox[#outbox])
+  enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate })
 end
 
@@ -265,7 +265,7 @@ function handlers.ApplyCoupon(cmd)
   order.totalAmount = tax.round(new_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
   order.coupon = cmd.payload.code
   local ev = { type = "CouponApplied", orderId = cmd.payload.orderId, code = cmd.payload.code, discount = discount, requestId = cmd.requestId }
-  table.insert(outbox, ev); storage.append("outbox", ev); send_event(ev)
+  enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId, totalAmount = order.totalAmount, code = cmd.payload.code })
 end
 
@@ -274,7 +274,7 @@ function handlers.RemoveCoupon(cmd)
   if not order then return err(cmd.requestId, "NOT_FOUND", "order not found") end
   order.coupon = nil
   local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, requestId = cmd.requestId }
-  table.insert(outbox, ev); storage.append("outbox", ev); send_event(ev)
+  enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId })
 end
 
@@ -334,10 +334,7 @@ function handlers.CreatePaymentIntent(cmd)
     local msg = table.concat({ pid, cmd.payload.orderId, tostring(cmd.payload.amount or ""), cmd.payload.currency or "" }, "|")
     ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
   end
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  send_event(outbox[#outbox])
+  enqueue_event(ev)
   return ok(cmd.requestId, { paymentId = pid, provider = provider, status = status, providerPaymentId = providerPaymentId, gatewayUrl = gatewayUrl })
 end
 
@@ -375,10 +372,7 @@ function handlers.CapturePayment(cmd)
     local msg = table.concat({ cmd.payload.paymentId, payment.orderId, tostring(payment.amount or ""), payment.currency or "" }, "|")
     ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
   end
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  send_event(outbox[#outbox])
+  enqueue_event(ev)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "captured" })
 end
 
@@ -403,10 +397,7 @@ function handlers.VoidPayment(cmd)
     orderId = payment.orderId,
     requestId = cmd.requestId,
   }
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  send_event(outbox[#outbox])
+  enqueue_event(ev)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "voided" })
 end
 
@@ -440,10 +431,7 @@ function handlers.UpsertShipmentStatus(cmd)
     carrier = cmd.payload.carrier,
     requestId = cmd.requestId,
   }
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  send_event(outbox[#outbox])
+  enqueue_event(ev)
   return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = cmd.payload.status })
 end
 
@@ -474,10 +462,7 @@ function handlers.UpsertReturnStatus(cmd)
     reason = cmd.payload.reason,
     requestId = cmd.requestId,
   }
-  table.insert(outbox, ev)
-  storage.append("outbox", ev)
-  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  send_event(outbox[#outbox])
+  enqueue_event(ev)
   return ok(cmd.requestId, { returnId = cmd.payload.returnId, status = cmd.payload.status })
 end
 
@@ -539,9 +524,7 @@ function handlers.ProviderWebhook(cmd)
           status = p.status,
           requestId = cmd.requestId,
         }
-        table.insert(outbox, ev)
-        storage.append("outbox", ev)
-        send_event(ev)
+        enqueue_event(ev)
         if p.orderId and state.orders[p.orderId] and state.orders[p.orderId].status then
           local oev = {
             type = "OrderStatusUpdated",
@@ -549,9 +532,7 @@ function handlers.ProviderWebhook(cmd)
             status = state.orders[p.orderId].status,
             requestId = cmd.requestId,
           }
-          table.insert(outbox, oev)
-          storage.append("outbox", oev)
-          send_event(oev)
+          enqueue_event(oev)
         end
         return ok(cmd.requestId, { paymentId = pid, status = p.status })
       end
