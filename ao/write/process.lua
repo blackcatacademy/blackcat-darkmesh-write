@@ -5,6 +5,7 @@ local auth = require("ao.shared.auth")
 local idem = require("ao.shared.idempotency")
 local audit = require("ao.shared.audit")
 local storage = require("ao.shared.storage")
+local bridge = require("ao.shared.bridge")
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 
 local M = {}
@@ -57,6 +58,7 @@ function handlers.PublishPageVersion(cmd)
   })
   storage.append("outbox", outbox[#outbox])
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  bridge.forward_event(outbox[#outbox]) -- best-effort
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
 end
 

@@ -49,6 +49,7 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_SIG_TYPE=ed25519|hmac`, with `WRITE_SIG_PUBLIC` (ed25519 PEM) or `WRITE_SIG_SECRET` (hmac key) to verify `signature` field.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
 - `WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json` — persist outbox events (used by forwarders/export).
+- Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` to only log. Router will best-effort POST publish events when set.
 
 ## CLI helpers
 - `lua scripts/cli/run_command.lua ./fixtures/sample-command.json` — route a JSON command locally and print the response (uses in-memory state).
