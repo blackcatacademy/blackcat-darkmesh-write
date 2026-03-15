@@ -75,6 +75,47 @@
         "policy": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "RevokeEntitlement": {
+      "type": "object",
+      "required": ["subject", "asset"],
+      "properties": {
+        "subject": { "type": "string" },
+        "asset": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertInventory": {
+      "type": "object",
+      "required": ["siteId", "sku", "quantity"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "sku": { "type": "string" },
+        "quantity": { "type": "integer", "minimum": 0 },
+        "location": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertPriceRule": {
+      "type": "object",
+      "required": ["siteId", "ruleId", "formula"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "ruleId": { "type": "string" },
+        "formula": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "GrantRole": {
+      "type": "object",
+      "required": ["tenant", "subject", "role"],
+      "properties": {
+        "tenant": { "type": "string" },
+        "subject": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

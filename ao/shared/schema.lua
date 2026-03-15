@@ -133,7 +133,9 @@ local function validate_properties(value, schema, path, errors)
       if v ~= nil then
         local actual_type = type_of(v)
         if prop.type and actual_type ~= prop.type then
-          table.insert(errors, path .. name .. " expected " .. prop.type .. ", got " .. actual_type)
+          if not (prop.type == "integer" and actual_type == "number" and math.floor(value[name]) == value[name]) then
+            table.insert(errors, path .. name .. " expected " .. prop.type .. ", got " .. actual_type)
+          end
         end
         if prop.enum then
           local ok_enum = false

@@ -49,6 +49,8 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_SIG_TYPE=ed25519|hmac`, with `WRITE_SIG_PUBLIC` (ed25519 PEM) or `WRITE_SIG_SECRET` (hmac key) to verify `signature` field.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
 - `WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json` — persist outbox events (used by forwarders/export).
+- `WRITE_RL_WINDOW_SECONDS` / `WRITE_RL_MAX_REQUESTS` — rate-limit per tenant+actor (default 60s / 200 reqs).
+- Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` or `AO_BRIDGE_MODE=mock` to only log; `AO_BRIDGE_RETRIES`/`AO_BRIDGE_BACKOFF_MS` for retry/backoff.
 - Bridge env: `AO_ENDPOINT=https://...` (optional); `AO_API_KEY`; `DRY_RUN=1` to only log. Router will best-effort POST publish events when set.
 
 ## CLI helpers

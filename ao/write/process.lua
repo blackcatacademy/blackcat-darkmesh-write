@@ -7,6 +7,7 @@ local audit = require("ao.shared.audit")
 local storage = require("ao.shared.storage")
 local bridge = require("ao.shared.bridge")
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
+local WAL_PATH = os.getenv("WRITE_WAL_PATH")
 
 local M = {}
 
@@ -19,6 +20,8 @@ local state = {
   roles = {},         -- tenant -> subject -> role
   profiles = {},      -- subject -> profile
   entitlements = {},  -- subject -> list of {asset, policy}
+  inventory = {},     -- siteId -> sku -> entry
+  price_rules = {},   -- siteId -> ruleId -> entry
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -95,6 +98,45 @@ function handlers.GrantEntitlement(cmd)
   return ok(cmd.requestId, { subject = subj, asset = cmd.payload.asset })
 end
 
+function handlers.RevokeEntitlement(cmd)
+  local subj = cmd.payload.subject
+  local list = state.entitlements[subj] or {}
+  local kept = {}
+  for _, e in ipairs(list) do
+    if e.asset ~= cmd.payload.asset then table.insert(kept, e) end
+  end
+  state.entitlements[subj] = kept
+  return ok(cmd.requestId, { subject = subj, asset = cmd.payload.asset, revoked = true })
+end
+
+function handlers.UpsertInventory(cmd)
+  local site = cmd.payload.siteId
+  state.inventory[site] = state.inventory[site] or {}
+  state.inventory[site][cmd.payload.sku] = {
+    quantity = cmd.payload.quantity,
+    location = cmd.payload.location,
+    updatedAt = cmd.timestamp,
+  }
+  return ok(cmd.requestId, { sku = cmd.payload.sku, quantity = cmd.payload.quantity })
+end
+
+function handlers.UpsertPriceRule(cmd)
+  local site = cmd.payload.siteId
+  state.price_rules[site] = state.price_rules[site] or {}
+  state.price_rules[site][cmd.payload.ruleId] = {
+    formula = cmd.payload.formula,
+    active = cmd.payload.active ~= false,
+  }
+  return ok(cmd.requestId, { ruleId = cmd.payload.ruleId })
+end
+
+function handlers.GrantRole(cmd)
+  local tenant = cmd.payload.tenant or cmd.tenant
+  state.roles[tenant] = state.roles[tenant] or {}
+  state.roles[tenant][cmd.payload.subject] = cmd.payload.role
+  return ok(cmd.requestId, { tenant = tenant, subject = cmd.payload.subject, role = cmd.payload.role })
+end
+
 -- route(command) validates and dispatches.
 function M.route(command)
   -- idempotency first: if we have it, return stored response.
@@ -127,6 +169,10 @@ function M.route(command)
   if not ok_policy then
     return err(command.requestId, "FORBIDDEN", pol_err or "policy denied")
   end
+  local ok_rl, rl_err = auth.check_rate_limit(command)
+  if not ok_rl then
+    return err(command.requestId, "RATE_LIMITED", rl_err)
+  end
 
   local ok_act, act_errs = validation.validate_action(command.action, command.payload)
   if not ok_act then
@@ -141,6 +187,17 @@ function M.route(command)
   local response = handler(command)
   idem.record(command.requestId, response)
   audit.append({ action = command.action, requestId = command.requestId, status = response.status, actor = command.actor, tenant = command.tenant })
+  if WAL_PATH then
+    local ok, cjson = pcall(require, "cjson")
+    if ok then
+      local f = io.open(WAL_PATH, "a")
+      if f then
+        f:write(cjson.encode({ ts = os.date("!%Y-%m-%dT%H:%M:%SZ"), req = command.requestId, action = command.action, status = response.status }))
+        f:write("\n")
+        f:close()
+      end
+    end
+  end
   return response
 end
 

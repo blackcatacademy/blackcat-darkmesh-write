@@ -71,6 +71,42 @@ do
   assert_eq(outbox[#outbox].manifestTx, "tx1", "outbox manifest matches")
 end
 
+-- New actions: inventory, price rule, revoke entitlement, grant role
+do
+  local inv = write.route(with_req({
+    action = "UpsertInventory",
+    requestId = "rid-inv-0001",
+    nonce = "nonce-inv-0001",
+    signatureRef = "sigref-inv-0001",
+    payload = { siteId = "s3", sku = "sku-1", quantity = 10, location = "wh1" },
+  }))
+  assert_status(inv, "OK", "inventory upsert")
+  local price = write.route(with_req({
+    action = "UpsertPriceRule",
+    requestId = "rid-price-0001",
+    nonce = "nonce-price-0001",
+    signatureRef = "sigref-price-0001",
+    payload = { siteId = "s3", ruleId = "rule-1", formula = "price*0.9", active = true },
+  }))
+  assert_status(price, "OK", "price rule upsert")
+  local grant = write.route(with_req({
+    action = "GrantRole",
+    requestId = "rid-grant-0001",
+    nonce = "nonce-grant-0001",
+    signatureRef = "sigref-grant-0001",
+    payload = { tenant = "t1", subject = "user1", role = "editor" },
+  }))
+  assert_status(grant, "OK", "grant role")
+  local revoke = write.route(with_req({
+    action = "RevokeEntitlement",
+    requestId = "rid-revoke-0001",
+    nonce = "nonce-revoke-0001",
+    signatureRef = "sigref-revoke-0001",
+    payload = { subject = "subj1", asset = "asset1" },
+  }))
+  assert_status(revoke, "OK", "revoke entitlement")
+end
+
 -- Unknown action
 do
   local resp = write.route(with_req({ action = "Nope", payload = {} }))

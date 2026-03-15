@@ -24,6 +24,9 @@ end
 local NONCE_TTL = tonumber(os.getenv("WRITE_NONCE_TTL_SECONDS") or "300")
 local NONCE_MAX = tonumber(os.getenv("WRITE_NONCE_MAX") or "2048")
 local nonce_store = {}
+local RL_WINDOW = tonumber(os.getenv("WRITE_RL_WINDOW_SECONDS") or "60")
+local RL_MAX = tonumber(os.getenv("WRITE_RL_MAX_REQUESTS") or "200")
+local rate_store = {}
 
 local function prune_nonces()
   local now = os.time()
@@ -110,6 +113,22 @@ function Auth.check_policy(command, policy)
       if r == role then ok = true end
     end
     if not ok then return false, "forbidden" end
+  end
+  return true
+end
+
+function Auth.check_rate_limit(command)
+  local now = os.time()
+  local key = (command.tenant or "global") .. ":" .. (command.actor or "anon")
+  local bucket = rate_store[key] or { count = 0, reset = now + RL_WINDOW }
+  if now > bucket.reset then
+    bucket.count = 0
+    bucket.reset = now + RL_WINDOW
+  end
+  bucket.count = bucket.count + 1
+  rate_store[key] = bucket
+  if bucket.count > RL_MAX then
+    return false, "rate_limited"
   end
   return true
 end
