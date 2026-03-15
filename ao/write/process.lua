@@ -404,7 +404,7 @@ function handlers.CartRemoveItem(cmd)
   return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
 end
 
-local function compute_totals(cart, coupon_code, vatRate, shipping)
+local function compute_totals(cart, coupon_code, vatRate, shipping, address)
   local subtotal = 0
   local total_weight = 0
   for _, it in ipairs(cart.items or {}) do
@@ -431,11 +431,19 @@ local function compute_totals(cart, coupon_code, vatRate, shipping)
   -- try lookup rate table if no explicit shipping provided
   if shipping == nil then
     local rates = state.shipping_rates[cart.siteId or "default"] or {}
+    local country = address and address.country and address.country:upper()
+    local region = address and address.region
+    local best_price
     for _, r in ipairs(rates) do
+      local country_match = (not r.country) or (country and r.country == country)
+      local region_match = (not r.region) or (region and r.region == region)
+      local currency_match = (not r.currency) or (r.currency == cart.currency)
       local fits_weight = (not r.minWeight or total_weight >= r.minWeight) and (not r.maxWeight or total_weight <= r.maxWeight)
-      if fits_weight then
-        shipping_fee = r.price or shipping_fee
-        break
+      if country_match and region_match and currency_match and fits_weight then
+        if not best_price or (r.price or 0) < best_price then
+          best_price = r.price or 0
+          shipping_fee = r.price or shipping_fee
+        end
       end
     end
   end
@@ -470,7 +478,7 @@ function handlers.CreateOrder(cmd)
     end
   end
   vatRate = vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
-  local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping)
+  local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
   if not totals then
     return err(cmd.requestId, "INVALID_INPUT", total_err)
   end
