@@ -21,6 +21,18 @@ local function send_email(text)
   local hook = os.getenv("NOTIFY_EMAIL_WEBHOOK")
   if hook and hook ~= "" then
     os.execute(string.format("curl -sS -X POST -H 'Content-Type: text/plain' --data %q %q >/dev/null", text, hook))
+    return true
+  end
+  local smtp = os.getenv("NOTIFY_SMTP_SENDMAIL")
+  if smtp and smtp ~= "" then
+    -- naive sendmail pipe, expects NOTIFY_SMTP_TO and NOTIFY_SMTP_FROM
+    local to = os.getenv("NOTIFY_SMTP_TO") or ""
+    local from = os.getenv("NOTIFY_SMTP_FROM") or ""
+    if to ~= "" and from ~= "" then
+      local cmd = string.format("printf 'From: %s\\nTo: %s\\nSubject: AO Notification\\n\\n%s\\n' | %s", from, to, text:gsub("'", "'\\''"), smtp)
+      os.execute(cmd .. " >/dev/null 2>&1")
+      return true
+    end
   else
     print("EMAIL " .. text)
   end

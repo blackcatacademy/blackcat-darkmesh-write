@@ -37,6 +37,7 @@ WantedBy=multi-user.target
 - Use `scripts/worker/notify_worker.lua` to deliver/preview outbox events.
 - Set `NOTIFY_EMAIL_WEBHOOK` / `NOTIFY_SMS_WEBHOOK` for HTTP delivery; otherwise messages print to stdout.
 - `NOTIFY_DRY_RUN=1` keeps queue entries (no ACK); default ACKs delivered entries.
+- Optional SMTP: set `NOTIFY_SMTP_SENDMAIL` (path to sendmail), `NOTIFY_SMTP_FROM`, `NOTIFY_SMTP_TO` to send via local MTA.
 
 ## Key rotation SOP (ed25519)
 - Rotate every 90 days or on incident.
