@@ -109,6 +109,41 @@ local function otp_hash(code)
   return crypto.hmac_sha256_hex(code, salt) or code
 end
 
+local function set_payment_status(pid, new_status, provider_status, req_id)
+  local p = state.payments[pid]
+  if not p then return end
+  p.status = new_status or p.status
+  p.updatedAt = os.time()
+  local ev = {
+    type = "PaymentStatusChanged",
+    paymentId = pid,
+    status = p.status,
+    providerStatus = provider_status,
+    requestId = req_id,
+  }
+  enqueue_event(ev)
+  if p.orderId and state.orders[p.orderId] then
+    local map = {
+      captured = "paid",
+      refunded = "refunded",
+      voided = "cancelled",
+      disputed = "disputed",
+      failed = "payment_failed",
+      pending = state.orders[p.orderId].status,
+    }
+    local new_order_status = map[p.status]
+    if new_order_status then
+      state.orders[p.orderId].status = new_order_status
+      enqueue_event({
+        type = "OrderStatusUpdated",
+        orderId = p.orderId,
+        status = new_order_status,
+        requestId = req_id,
+      })
+    end
+  end
+end
+
 local function otp_rate_key(sub, tenant)
   return (tenant or "tenant") .. ":" .. (sub or "user")
 end
@@ -901,21 +936,7 @@ function handlers.CapturePayment(cmd)
       if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
     end
   end
-  payment.status = "captured"
-  payment.capturedAt = cmd.timestamp
-  local ev = {
-    type = "PaymentCaptured",
-    paymentId = cmd.payload.paymentId,
-    orderId = payment.orderId,
-    amount = payment.amount,
-    currency = payment.currency,
-    requestId = cmd.requestId,
-  }
-  if OUTBOX_HMAC_SECRET then
-    local msg = table.concat({ cmd.payload.paymentId, payment.orderId, tostring(payment.amount or ""), payment.currency or "" }, "|")
-    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
-  end
-  enqueue_event(ev)
+  set_payment_status(cmd.payload.paymentId, "captured", "captured", cmd.requestId)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "captured" })
 end
 
@@ -942,12 +963,7 @@ function handlers.ConfirmPayment(cmd)
       payment.status = "captured"
     end
   end
-  enqueue_event({
-    type = "PaymentStatusChanged",
-    paymentId = cmd.payload.paymentId,
-    status = payment.status,
-    requestId = cmd.requestId,
-  })
+  set_payment_status(cmd.payload.paymentId, payment.status, payment.status, cmd.requestId)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
 end
 
@@ -983,12 +999,7 @@ function handlers.PaymentReturn(cmd)
     end
   end
   payment.status = status or payment.status
-  enqueue_event({
-    type = "PaymentStatusChanged",
-    paymentId = cmd.payload.paymentId,
-    status = payment.status,
-    requestId = cmd.requestId,
-  })
+  set_payment_status(cmd.payload.paymentId, payment.status, payment.status, cmd.requestId)
   return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = payment.status })
 end
 
