@@ -255,6 +255,7 @@ do
     payload = { orderId = order.payload.orderId, code = "ONEUSE10" },
   }))
   assert_status(apply_ok, "OK", "coupon apply first time")
+  assert(apply_ok.payload.totalAmount, "totalAmount present after coupon")
 
   -- second order should hit maxRedemptions
   local cart2 = write.route(with_req({
@@ -273,6 +274,23 @@ do
   }))
   assert_status(apply_fail, "ERROR", "coupon exhausted")
   assert_eq(apply_fail.code, "INVALID_INPUT", "exhausted code")
+
+  -- per-customer redemption limit hit (redeemByCustomer=1)
+  local cart3 = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart3", siteId = "s6", sku = "sku-1", qty = 1, price = 50, currency = "USD" },
+  }))
+  assert_status(cart3, "OK", "cart3 add")
+  local order3 = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart3", customerId = "cust1", siteId = "s6", currency = "USD" },
+  }))
+  assert_status(order3, "OK", "order3 create")
+  local apply_customer_fail = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order3.payload.orderId, code = "ONEUSE10" },
+  }))
+  assert_status(apply_customer_fail, "ERROR", "coupon customer exhausted")
 
   -- stacking: non-stackable blocks second coupon
   local up2 = write.route(with_req({
