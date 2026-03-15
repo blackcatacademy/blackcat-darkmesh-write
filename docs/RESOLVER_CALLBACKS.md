@@ -25,10 +25,10 @@ Notes:
 - `PaymentReturn` will map provider payload to internal status and reuse ConfirmPayment for Stripe/PayPal when needed.
 - Outbox emits `PaymentStatusChanged`; downstream AO/resolver should refresh order/payment UI.
 - For real deployments, expose an HTTP handler that forwards the JSON above to write AO.
-- Disputes/chargebacks: Stripe `charge.dispute.*` a PayPal `CUSTOMER.DISPUTE.*` webhooky posílají `provider`=`stripe|paypal`, `eventType`=`...dispute...`, `paymentId` (intent/capture id) → write přemapuje na `paymentStatus=disputed` a emituje PaymentStatusChanged. AO následně označí objednávku jako `disputed`.
+- Disputes/chargebacks: Stripe `charge.dispute.*` and PayPal `CUSTOMER.DISPUTE.*` webhooks send `provider`=`stripe|paypal`, `eventType`=`...dispute...`, `paymentId` (intent/capture id) → write maps to `paymentStatus=disputed` and emits PaymentStatusChanged. AO then marks the order as `disputed`.
 
 # Trusted resolvers (trust manifest)
-- Manifest (unsigned) obsahuje pole `resolvers` se záznamy `{ id, pubkey, endpoint, validFrom, validTo, status }`.
-- Signatura (HMAC-SHA256) se přidá pomocí `scripts/cli/trust_manifest_sign.lua` a nahraje na Arweave.
-- Ops zapíší txId do AO registry akcí `UpdateTrustResolvers` (role admin/registry-admin) a/nebo nastaví `TRUST_MANIFEST_TX` v env.
-- Resolver při startu stáhne manifest z Arweave, ověří HMAC (`TRUST_MANIFEST_HMAC`), použije jen aktivní/platné záznamy.
+- Manifest (unsigned) contains `resolvers` entries `{ id, pubkey, endpoint, validFrom, validTo, status }`.
+- Signature (HMAC-SHA256) is added via `scripts/cli/trust_manifest_sign.lua` and uploaded to Arweave.
+- Ops record txId in AO registry via `UpdateTrustResolvers` (role admin/registry-admin) and/or set `TRUST_MANIFEST_TX` in env.
+- Resolver on startup fetches manifest from Arweave, verifies HMAC (`TRUST_MANIFEST_HMAC`), and uses only active/valid entries.
