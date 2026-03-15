@@ -503,7 +503,18 @@
       "properties": {
         "paymentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "provider": { "type": "string", "enum": ["stripe", "paypal", "gopay"] },
-        "evidence": { "type": "object" },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "hash": { "type": "string" },
+            "hashAlgo": { "type": "string", "enum": ["sha256", "sha1", "md5"] },
+            "type": { "type": "string" },
+            "note": { "type": "string" },
+            "fileName": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
         "status": { "type": "string" },
         "reason": { "type": "string" }
       },
