@@ -1,0 +1,6 @@
+# Recommended Lua rocks versions
+cjson 2.1.0-1
+luv 1.51.0-1
+lsqlite3 0.9.5-1
+luaossl 20230929-0
+sodium 1.0.18-0

@@ -24,3 +24,11 @@ jobs:
           RUN_BATCH: 1
           RUN_DEPS_CHECK: 1
         run: scripts/verify/preflight.sh
+
+      - name: Secret scan (gitleaks if available)
+        run: |
+          if command -v gitleaks >/dev/null 2>&1; then
+            gitleaks detect --no-git -v
+          else
+            echo "gitleaks not installed; skipping"
+          fi
