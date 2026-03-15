@@ -84,7 +84,28 @@
         "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
         "variant": { "type": "object" },
         "weight": { "type": "number", "minimum": 0 },
-        "dimensions": { "type": "object" }
+        "dimensions": { "type": "object" },
+        "categoryId": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "CartGet": {
+      "type": "object",
+      "required": ["cartId"],
+      "properties": {
+        "cartId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      },
+      "additionalProperties": false
+    },
+    "CartPrice": {
+      "type": "object",
+      "required": ["cartId"],
+      "properties": {
+        "cartId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "coupon": { "type": "string" },
+        "vatRate": { "type": "number", "minimum": 0 },
+        "shipping": { "type": "number", "minimum": 0 },
+        "address": { "type": "object" }
       },
       "additionalProperties": false
     },

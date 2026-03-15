@@ -170,6 +170,55 @@ do
   assert_status(webhook, "OK", "provider webhook")
 end
 
+-- Cart / pricing / order creation
+do
+  write.route(with_req({
+    action = "AddShippingRate",
+    payload = { siteId = "s-cart", country = "CZ", price = 5, currency = "CZK", carrier = "PPL" },
+  }))
+  write.route(with_req({
+    action = "AddTaxRate",
+    payload = { siteId = "s-cart", country = "CZ", rate = 0.21, category = "books" },
+  }))
+  local cart_add = write.route(with_req({
+    action = "CartAddItem",
+    payload = {
+      cartId = "cart-1",
+      siteId = "s-cart",
+      sku = "sku-book-1",
+      qty = 2,
+      price = 100,
+      currency = "CZK",
+      weight = 0.5,
+      categoryId = "books",
+    },
+  }))
+  assert_status(cart_add, "OK", "cart add")
+  local cart_get = write.route(with_req({
+    action = "CartGet",
+    payload = { cartId = "cart-1" },
+  }))
+  assert_status(cart_get, "OK", "cart get")
+  assert_eq(#(cart_get.payload.cart.items), 1, "cart items count")
+  local price = write.route(with_req({
+    action = "CartPrice",
+    payload = { cartId = "cart-1", address = { country = "CZ" } },
+  }))
+  assert_status(price, "OK", "cart price")
+  assert(price.payload.totals.total > 0, "cart total computed")
+  local create = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart-1", customerId = "cust-1", siteId = "s-cart", currency = "CZK", address = { country = "CZ" } },
+  }))
+  assert_status(create, "OK", "create order")
+  local create_again = write.route(with_req({
+    action = "CreateOrder",
+    requestId = "rid-create-idem",
+    payload = { cartId = "cart-1", customerId = "cust-1", siteId = "s-cart", currency = "CZK", address = { country = "CZ" } },
+  }))
+  assert_status(create_again, "OK", "create order second")
+end
+
 -- Coupons enforcement: scope, redemptions, expiry
 do
   -- seed coupon applicable to sku-1 with single redemption and expiry in future

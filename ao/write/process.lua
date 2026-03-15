@@ -27,6 +27,8 @@ end
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local WAL_PATH = os.getenv("WRITE_WAL_PATH")
 local OUTBOX_HMAC_SECRET = os.getenv("OUTBOX_HMAC_SECRET")
+local CART_STORE_PATH = os.getenv("WRITE_CART_STORE_PATH")
+local RATE_STORE_PATH = os.getenv("WRITE_RATE_STORE_PATH")
 
 local M = {}
 
@@ -68,6 +70,22 @@ local state = {
   otps = {},          -- code_hash -> { sub, tenant, role, exp }
   otp_rate = {},      -- key -> { count, reset }
 }
+
+-- load persisted carts if available
+do
+  if CART_STORE_PATH then
+    storage.load(CART_STORE_PATH)
+    local persisted = storage.get("carts")
+    if persisted then state.carts = persisted end
+  end
+  if RATE_STORE_PATH then
+    storage.load(RATE_STORE_PATH)
+    local sh = storage.get("shipping_rates")
+    if sh then state.shipping_rates = sh end
+    local tx = storage.get("tax_rates")
+    if tx then state.tax_rates = tx end
+  end
+end
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
 local function ok(req_id, payload)
@@ -459,6 +477,7 @@ function handlers.ExchangeOtp(cmd)
 end
 
 -- Cart & Order creation
+local compute_totals
 
 local function assert_currency(cart_currency, item_currency)
   if item_currency and cart_currency and item_currency ~= cart_currency then
@@ -499,7 +518,28 @@ function handlers.CartAddItem(cmd)
     })
   end
   state.carts[cmd.payload.cartId] = cart
+  storage.put("carts", state.carts)
+  if CART_STORE_PATH then storage.persist(CART_STORE_PATH) end
   return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
+end
+
+function handlers.CartGet(cmd)
+  local cart = state.carts[cmd.payload.cartId]
+  if not cart then return err(cmd.requestId, "NOT_FOUND", "cart not found") end
+  return ok(cmd.requestId, { cart = cart })
+end
+
+function handlers.CartPrice(cmd)
+  local cart = state.carts[cmd.payload.cartId]
+  if not cart or #(cart.items or {}) == 0 then
+    return err(cmd.requestId, "NOT_FOUND", "cart empty or missing")
+  end
+  local vatRate = cmd.payload.vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
+  local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping, cmd.payload.address)
+  if not totals then
+    return err(cmd.requestId, "INVALID_INPUT", total_err)
+  end
+  return ok(cmd.requestId, { cartId = cmd.payload.cartId, totals = totals })
 end
 
 function handlers.CartRemoveItem(cmd)
@@ -511,10 +551,12 @@ function handlers.CartRemoveItem(cmd)
   end
   cart.items = keep
   state.carts[cmd.payload.cartId] = cart
+  storage.put("carts", state.carts)
+  if CART_STORE_PATH then storage.persist(CART_STORE_PATH) end
   return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
 end
 
-local function compute_totals(cart, coupon_code, vatRate, shipping, address)
+function compute_totals(cart, coupon_code, vatRate, shipping, address)
   local subtotal = 0
   local total_weight = 0
   for _, it in ipairs(cart.items or {}) do
@@ -598,6 +640,10 @@ function handlers.CreateOrder(cmd)
   if not cart or #(cart.items or {}) == 0 then
     return err(cmd.requestId, "NOT_FOUND", "cart empty or missing")
   end
+  local existing_order_id = cmd.payload.orderId or ("ord_" .. tostring(cmd.payload.cartId))
+  if state.orders[existing_order_id] then
+    return ok(cmd.requestId, { orderId = existing_order_id, totalAmount = state.orders[existing_order_id].totals and state.orders[existing_order_id].totals.total, currency = state.orders[existing_order_id].currency })
+  end
   -- derive vatRate from tax table if not provided
   local vatRate = cmd.payload.vatRate
   if not vatRate then
@@ -617,7 +663,7 @@ function handlers.CreateOrder(cmd)
   if not totals then
     return err(cmd.requestId, "INVALID_INPUT", total_err)
   end
-  local orderId = "ord_" .. (cmd.payload.cartId or tostring(os.time()))
+  local orderId = existing_order_id
   state.orders[orderId] = {
     siteId = cmd.payload.siteId or cart.siteId,
     customerId = cmd.payload.customerId,
@@ -661,6 +707,8 @@ function handlers.AddShippingRate(cmd)
     carrier = cmd.payload.carrier,
     service = cmd.payload.service,
   })
+  storage.put("shipping_rates", state.shipping_rates)
+  if RATE_STORE_PATH then storage.persist(RATE_STORE_PATH) end
   return ok(cmd.requestId, { siteId = site, rates = #state.shipping_rates[site] })
 end
 
@@ -673,6 +721,8 @@ function handlers.AddTaxRate(cmd)
     rate = cmd.payload.rate,
     category = cmd.payload.category,
   })
+  storage.put("tax_rates", state.tax_rates)
+  if RATE_STORE_PATH then storage.persist(RATE_STORE_PATH) end
   return ok(cmd.requestId, { siteId = site, rates = #state.tax_rates[site] })
 end
 
@@ -1194,6 +1244,10 @@ function handlers.ProviderWebhook(cmd)
       ["PAYMENT.CAPTURE.REFUNDED"] = "refunded",
       ["PAYMENT.CAPTURE.REVERSED"] = "voided",
       ["CHECKOUT.ORDER.APPROVED"] = "requires_capture",
+      ["PAYMENT.CAPTURE.PENDING"] = "pending",
+      ["CUSTOMER.DISPUTE.CREATED"] = "disputed",
+      ["CUSTOMER.DISPUTE.UPDATED"] = "disputed",
+      ["CUSTOMER.DISPUTE.RESOLVED"] = "captured",
     }
     local new_status = status_map[cmd.payload.eventType] or "pending"
     for pid, p in pairs(state.payments) do
