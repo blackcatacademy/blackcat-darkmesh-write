@@ -1036,6 +1036,10 @@ function handlers.ProviderWebhook(cmd)
       ["charge.refund.updated"] = "refunded",
       ["payment_intent.processing"] = "pending",
       ["payment_intent.requires_action"] = "requires_capture",
+      ["charge.dispute.created"] = "disputed",
+      ["charge.dispute.closed"] = "captured",
+      ["charge.dispute.funds_withdrawn"] = "disputed",
+      ["charge.dispute.funds_reinstated"] = "captured",
     }
     local new_status = status_map[cmd.payload.eventType] or "pending"
     for pid, p in pairs(state.payments) do
