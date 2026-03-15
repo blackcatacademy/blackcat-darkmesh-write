@@ -203,6 +203,22 @@ do
   assert_eq(second.payload and second.payload.draftKey, nil, "replayed payload from first")
 end
 
+-- repeated same action with same requestId should always return identical payload
+do
+  local write = require("ao.write.process")
+  local rid = "rid-same-action"
+  local cmd = with_req({
+    action = "SaveDraftPage",
+    requestId = rid,
+    role = "editor",
+    payload = { siteId = "s2", pageId = "p2", locale = "en", blocks = {} },
+  })
+  local r1 = write.route(cmd)
+  local r2 = write.route(cmd)
+  assert_status(r1, "OK", "first save ok")
+  assert_eq(r1.payload.draftKey, r2.payload.draftKey, "idempotent payload same")
+end
+
 -- negative role tests for protected actions
 do
   local write = require("ao.write.process")
