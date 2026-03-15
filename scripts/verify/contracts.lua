@@ -240,6 +240,25 @@ do
   }))
   assert_status(apply_stack, "ERROR", "non-stackable existing blocks")
   assert_eq(apply_stack.code, "INVALID_STATE", "non-stackable code")
+
+  -- scope enforcement: coupon applies only to sku-2
+  local scoped = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = {
+      code = "SKU2ONLY",
+      type = "fixed",
+      value = 5,
+      currency = "USD",
+      applies_to = { "sku-2" },
+    },
+  }))
+  assert_status(scoped, "OK", "upsert scoped coupon")
+  local apply_scope_fail = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order.payload.orderId, code = "SKU2ONLY" },
+  }))
+  assert_status(apply_scope_fail, "ERROR", "scope mismatch")
+  assert_eq(apply_scope_fail.code, "INVALID_STATE", "scope mismatch code")
 end
 
 -- Unknown action
