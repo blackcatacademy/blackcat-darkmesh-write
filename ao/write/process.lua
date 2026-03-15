@@ -363,6 +363,10 @@ local function is_coupon_valid(code, order)
   if c.currency and order.currency and c.currency ~= order.currency then return false, "currency_mismatch" end
   if c.minOrder and order.totalAmount and order.totalAmount < c.minOrder then return false, "min_order_not_met" end
   if c.maxRedemptions and (state.coupon_redemptions[code] or 0) >= c.maxRedemptions then return false, "coupon_exhausted" end
+  if c.redeemByCustomer and order.customerId then
+    local per_customer = state.coupon_redemptions_customer[code] and state.coupon_redemptions_customer[code][order.customerId] or 0
+    if c.redeemByCustomer > 0 and per_customer >= c.redeemByCustomer then return false, "coupon_customer_exhausted" end
+  end
   if c.applies_to and type(c.applies_to) == "table" and order.items then
     local sku_allowed = {}
     for _, sku in ipairs(c.applies_to) do sku_allowed[sku] = true end
@@ -415,6 +419,7 @@ function handlers.ApplyCoupon(cmd)
   else
     discount = c.value or 0
   end
+  if c.maxDiscount and discount > c.maxDiscount then discount = c.maxDiscount end
   local new_total = math.max(0, order.totalAmount - discount)
   order.totalAmount = tax.round(new_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
   table.insert(order.coupons, cmd.payload.code)
