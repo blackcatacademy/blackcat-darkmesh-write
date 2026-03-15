@@ -249,6 +249,18 @@ do
   assert(st.shipments["ship-hook-1"].status == "shipped", "status set")
 end
 
+-- AddDisputeEvidence requires role
+do
+  local resp = write.route({
+    action = "AddDisputeEvidence",
+    payload = { paymentId = "p1", provider = "stripe", evidence = { f = 1 } },
+    tenant = "t1",
+    actor = "user1",
+    role = nil,
+  })
+  assert_status(resp, "ERROR", "missing role is forbidden")
+end
+
 -- Cart / pricing / order creation
 do
   write.route(with_req({

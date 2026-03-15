@@ -102,6 +102,10 @@ local function err(req_id, code, msg, details)
 end
 
 local handlers = {}
+local role_policy = {
+  ProviderShippingWebhook = { "support", "admin", "catalog-admin" },
+  AddDisputeEvidence = { "support", "admin" },
+}
 
 local function b64url(x)
   return (mime.b64(x) or ""):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
