@@ -49,6 +49,7 @@ jobs:
         env:
           RUN_BATCH: 1
           RUN_DEPS_CHECK: 1
+          WRITE_REQUIRE_SIGNATURE: 1  # ensure crypto deps present in CI
         run: scripts/verify/preflight.sh
 
       - name: Arweave hash verify (enforced on release)
