@@ -12,6 +12,8 @@ local jwt_ok, jwt = pcall(require, "ao.shared.jwt")
 
 local overrides = { require_sig = nil, require_nonce = nil, allow_anon = nil }
 local rl_override = { window = nil, max = nil }
+local resolver_flags = {}
+local FLAGS_FILE = os.getenv("WRITE_FLAGS_PATH")
 local role_policy = {
   SaveDraftPage      = { "editor", "admin" },
   PublishPageVersion = { "publisher", "admin" },
@@ -87,6 +89,43 @@ local function prune_nonces()
     end
     if oldest_key then nonce_store[oldest_key] = nil end
   end
+end
+
+local function load_resolver_flags()
+  if not FLAGS_FILE or FLAGS_FILE == "" then return end
+  local f = io.open(FLAGS_FILE, "r")
+  if not f then return end
+  local tmp = {}
+  for line in f:lines() do
+    local ok_json, cjson = pcall(require, "cjson")
+    if ok_json then
+      local obj = cjson.decode(line)
+      if obj and obj.resolverId and obj.flag then
+        tmp[obj.resolverId] = obj
+      end
+    end
+  end
+  f:close()
+  resolver_flags = tmp
+end
+
+local function check_resolver_flag(command)
+  if not FLAGS_FILE or FLAGS_FILE == "" then return true end
+  local rid = command["Resolver-Id"] or command.resolverId or command.resolver
+  if not rid then return true end
+  load_resolver_flags()
+  local entry = resolver_flags[rid]
+  if not entry then return true end
+  if entry.flag == "blocked" then
+    return false, "resolver_blocked"
+  elseif entry.flag == "suspicious" then
+    local action = command.action or command.Action or ""
+    if action:match("^[Gg]et") or action:match("^[Ll]ist") then
+      return true
+    end
+    return false, "resolver_suspicious_readonly"
+  end
+  return true
 end
 
 function Auth.require_nonce(command)
@@ -193,6 +232,8 @@ function Auth.check_policy(command, policy)
     end
     if not ok then return false, "forbidden" end
   end
+  local ok_flag, err_flag = check_resolver_flag(command)
+  if not ok_flag then return false, err_flag end
   if REQUIRE_DEVICE then
     if not command.deviceToken and not command["Device-Token"] then
       return false, "missing_device_token"
