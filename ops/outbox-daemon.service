@@ -1,0 +1,17 @@
+[Unit]
+Description=Blackcat Write AO outbox queue forwarder
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/blackcat-darkmesh-write
+EnvironmentFile=/etc/blackcat/write.env
+# Expect WRITE_OUTBOX_PATH, OUTBOX_RETRY_LIMIT, OUTBOX_BACKOFF_MS, PROM_FORMAT
+ExecStart=/usr/bin/env LUA_PATH='?/init.lua;?.lua;./?/init.lua;./?.lua' LUA_CPATH='?.so;./?.so' lua scripts/worker/outbox_daemon.lua
+Restart=on-failure
+RestartSec=2
+User=blackcat
+Group=blackcat
+
+[Install]
+WantedBy=multi-user.target
