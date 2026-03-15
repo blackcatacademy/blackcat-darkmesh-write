@@ -231,6 +231,9 @@ do
       value = 10,
       currency = "USD",
       maxRedemptions = 1,
+      redeemByCustomer = 1,
+      maxDiscount = 8,
+      maxStack = 2,
       startsAt = now - 100,
       expiresAt = now + 1000,
       applies_to = { "sku-1" },
@@ -310,6 +313,50 @@ do
   }))
   assert_status(apply_stack, "ERROR", "non-stackable existing blocks")
   assert_eq(apply_stack.code, "INVALID_STATE", "non-stackable code")
+
+  -- stackable coupons allowed when both are stackable
+  local up_stack = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = { code = "STACK1", type = "fixed", value = 5, currency = "USD", stackable = true },
+  }))
+  assert_status(up_stack, "OK", "upsert stack1")
+  local up_stack2 = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = { code = "STACK2", type = "fixed", value = 3, currency = "USD", stackable = true },
+  }))
+  assert_status(up_stack2, "OK", "upsert stack2")
+  local cart4 = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart4", siteId = "s6", sku = "sku-1", qty = 1, price = 50, currency = "USD" },
+  }))
+  assert_status(cart4, "OK", "cart4 add")
+  local order4 = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart4", customerId = "cust4", siteId = "s6", currency = "USD" },
+  }))
+  assert_status(order4, "OK", "order4 create")
+  local apply_stack1 = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order4.payload.orderId, code = "STACK1" },
+  }))
+  assert_status(apply_stack1, "OK", "apply stack1")
+  local apply_stack2 = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order4.payload.orderId, code = "STACK2" },
+  }))
+  assert_status(apply_stack2, "OK", "apply stack2")
+
+  -- expiry enforcement
+  local up_expired = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = { code = "EXPIRED", type = "fixed", value = 5, currency = "USD", expiresAt = now - 10, startsAt = now - 100 },
+  }))
+  assert_status(up_expired, "OK", "upsert expired")
+  local apply_expired = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order4.payload.orderId, code = "EXPIRED" },
+  }))
+  assert_status(apply_expired, "ERROR", "expired coupon rejected")
 
   -- OTP flow: Issue and exchange
   local otp_issue = write.route(with_req({

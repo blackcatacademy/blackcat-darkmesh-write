@@ -403,6 +403,9 @@ local function is_coupon_valid(code, order)
     local per_customer = state.coupon_redemptions_customer[code] and state.coupon_redemptions_customer[code][order.customerId] or 0
     if c.redeemByCustomer > 0 and per_customer >= c.redeemByCustomer then return false, "coupon_customer_exhausted" end
   end
+  if c.maxStack and order.coupons and #order.coupons >= c.maxStack then
+    return false, "coupon_stack_limit"
+  end
   if c.applies_to and type(c.applies_to) == "table" and order.items then
     local sku_allowed = {}
     for _, sku in ipairs(c.applies_to) do sku_allowed[sku] = true end
