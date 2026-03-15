@@ -154,6 +154,7 @@ function handlers.UpsertCoupon(cmd)
     expiresAt = cmd.payload.expiresAt,
     applies_to = cmd.payload.applies_to,
     is_active = cmd.payload.is_active ~= false,
+    stackable = cmd.payload.stackable == true,
   }
   return ok(cmd.requestId, { code = cmd.payload.code })
 end
@@ -834,7 +835,13 @@ end
 
 function handlers.CreateShippingLabel(cmd)
   state.shipments[cmd.payload.shipmentId] = state.shipments[cmd.payload.shipmentId] or {}
-  local label_url = string.format("https://labels.example/label/%s.pdf", cmd.payload.shipmentId)
+  local label_url
+  local base = os.getenv("CARRIER_LABEL_URL")
+  if base then
+    label_url = string.format("%s/%s.pdf", base, cmd.payload.shipmentId)
+  else
+    label_url = string.format("https://labels.example/label/%s.pdf", cmd.payload.shipmentId)
+  end
   state.shipments[cmd.payload.shipmentId].labelUrl = label_url
   state.shipments[cmd.payload.shipmentId].carrier = cmd.payload.carrier
   state.shipments[cmd.payload.shipmentId].service = cmd.payload.service

@@ -221,6 +221,25 @@ do
   }))
   assert_status(apply_fail, "ERROR", "coupon exhausted")
   assert_eq(apply_fail.code, "INVALID_INPUT", "exhausted code")
+
+  -- stacking: non-stackable blocks second coupon
+  local up2 = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = {
+      code = "STACKABLE",
+      type = "fixed",
+      value = 5,
+      currency = "USD",
+      stackable = true,
+    },
+  }))
+  assert_status(up2, "OK", "upsert stackable")
+  local apply_stack = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order.payload.orderId, code = "STACKABLE" },
+  }))
+  assert_status(apply_stack, "ERROR", "non-stackable existing blocks")
+  assert_eq(apply_stack.code, "INVALID_STATE", "non-stackable code")
 end
 
 -- Unknown action
