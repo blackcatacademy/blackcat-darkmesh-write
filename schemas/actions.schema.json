@@ -37,7 +37,9 @@
         "startsAt": { "type": "integer" },
         "expiresAt": { "type": "integer" },
         "applies_to": { "type": "array", "items": { "type": "string" } },
-        "is_active": { "type": "boolean" }
+        "applies_to_categories": { "type": "array", "items": { "type": "string" } },
+        "is_active": { "type": "boolean" },
+        "stackable": { "type": "boolean" }
       },
       "additionalProperties": false
     },

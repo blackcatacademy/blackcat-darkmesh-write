@@ -280,21 +280,38 @@ local function is_coupon_valid(code, order)
     end
     if not ok_any then return false, "coupon_not_applicable" end
   end
+  if c.applies_to_categories and type(c.applies_to_categories) == "table" and order.items then
+    local cat_allowed = {}
+    for _, cat in ipairs(c.applies_to_categories) do cat_allowed[cat] = true end
+    local ok_any = false
+    for _, it in ipairs(order.items) do
+      if it.categoryId and cat_allowed[it.categoryId] then ok_any = true break end
+    end
+    if not ok_any then return false, "coupon_not_applicable" end
+  end
   return true
 end
 
 function handlers.ApplyCoupon(cmd)
   local order = state.orders[cmd.payload.orderId]
-  if not order or not order.totalAmount then
-    if order and order.totals and order.totals.total then
-      order.totalAmount = order.totals.total
-    else
-      return err(cmd.requestId, "NOT_FOUND", "order not found or no total")
+  if not order then return err(cmd.requestId, "NOT_FOUND", "order not found") end
+  order.totalAmount = order.totalAmount or (order.totals and order.totals.total)
+  if not order.totalAmount then return err(cmd.requestId, "NOT_FOUND", "order missing total") end
+
+  order.coupons = order.coupons or {}
+  if #order.coupons > 0 then
+    -- stacking only if both existing and new coupon are stackable
+    local existing_codes = order.coupons
+    local any_non_stackable = false
+    for _, code in ipairs(existing_codes) do
+      if state.coupons[code] and state.coupons[code].stackable == false then any_non_stackable = true end
+    end
+    local new_c = state.coupons[cmd.payload.code]
+    if any_non_stackable or (new_c and new_c.stackable == false) then
+      return err(cmd.requestId, "INVALID_STATE", "coupon_not_stackable")
     end
   end
-  if order.coupon then
-    return err(cmd.requestId, "INVALID_STATE", "coupon_already_applied")
-  end
+
   local ok_coupon, reason = is_coupon_valid(cmd.payload.code, order)
   if not ok_coupon then
     return err(cmd.requestId, "INVALID_INPUT", reason)
@@ -308,18 +325,25 @@ function handlers.ApplyCoupon(cmd)
   end
   local new_total = math.max(0, order.totalAmount - discount)
   order.totalAmount = tax.round(new_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
-  order.coupon = cmd.payload.code
+  table.insert(order.coupons, cmd.payload.code)
+  order.coupon = order.coupons[1] -- legacy
   state.coupon_redemptions[cmd.payload.code] = (state.coupon_redemptions[cmd.payload.code] or 0) + 1
   local ev = { type = "CouponApplied", orderId = cmd.payload.orderId, code = cmd.payload.code, discount = discount, requestId = cmd.requestId }
   enqueue_event(ev)
-  return ok(cmd.requestId, { orderId = cmd.payload.orderId, totalAmount = order.totalAmount, code = cmd.payload.code })
+  return ok(cmd.requestId, { orderId = cmd.payload.orderId, totalAmount = order.totalAmount, code = cmd.payload.code, coupons = order.coupons })
 end
 
 function handlers.RemoveCoupon(cmd)
   local order = state.orders[cmd.payload.orderId]
   if not order then return err(cmd.requestId, "NOT_FOUND", "order not found") end
-  order.coupon = nil
-  local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, requestId = cmd.requestId }
+  order.coupons = order.coupons or {}
+  local keep = {}
+  for _, code in ipairs(order.coupons) do
+    if code ~= cmd.payload.code then table.insert(keep, code) end
+  end
+  order.coupons = keep
+  order.coupon = keep[1]
+  local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, code = cmd.payload.code, requestId = cmd.requestId }
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId })
 end
@@ -457,7 +481,8 @@ function handlers.CreateOrder(cmd)
     items = cart.items,
     status = "pending",
     totals = totals,
-    coupon = cmd.payload.coupon,
+    coupon = cmd.payload.coupon, -- legacy
+    coupons = cmd.payload.coupon and { cmd.payload.coupon } or {},
     vatRate = vatRate,
     shipping = totals.shipping,
     address = cmd.payload.address,
