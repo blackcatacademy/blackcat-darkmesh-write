@@ -188,6 +188,24 @@ do
   assert(st.orders["o-dispute"].status == "disputed", "order marked disputed")
 end
 
+-- PayPal dispute webhook propagates to payments/orders
+do
+  local pay = write.route(with_req({
+    action = "CreatePaymentIntent",
+    payload = { orderId = "o-pp-dispute", amount = 75, currency = "USD", provider = "paypal" },
+  }))
+  assert_status(pay, "OK", "create paypal payment")
+  local wh = write.route(with_req({
+    action = "ProviderWebhook",
+    payload = { provider = "paypal", paymentId = pay.payload.paymentId, eventType = "CUSTOMER.DISPUTE.CREATED", status = "disputed", reason = "item_not_received" },
+  }))
+  assert_status(wh, "OK", "paypal dispute webhook")
+  local st = write._state()
+  assert(st.payment_disputes[pay.payload.paymentId], "paypal dispute recorded")
+  assert(st.payment_disputes[pay.payload.paymentId].status == "disputed", "paypal dispute status set")
+  assert(st.orders["o-pp-dispute"].status == "disputed", "order marked disputed")
+end
+
 -- Cart / pricing / order creation
 do
   write.route(with_req({
