@@ -32,6 +32,46 @@
       },
       "additionalProperties": false
     },
+    "CartAddItem": {
+      "type": "object",
+      "required": ["cartId", "siteId", "sku", "qty", "price", "currency"],
+      "properties": {
+        "cartId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "siteId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "sku": { "type": "string" },
+        "productId": { "type": "string" },
+        "title": { "type": "string" },
+        "qty": { "type": "integer", "minimum": 1 },
+        "price": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "variant": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "CartRemoveItem": {
+      "type": "object",
+      "required": ["cartId", "sku"],
+      "properties": {
+        "cartId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "sku": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "CreateOrder": {
+      "type": "object",
+      "required": ["cartId", "customerId", "siteId", "currency"],
+      "properties": {
+        "cartId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "customerId": { "type": "string" },
+        "siteId": { "type": "string" },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "shipping": { "type": "number", "minimum": 0 },
+        "vatRate": { "type": "number", "minimum": 0 },
+        "coupon": { "type": "string" },
+        "address": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
     "PublishPageVersion": {
       "type": "object",
       "required": ["siteId", "pageId", "versionId", "manifestTx"],

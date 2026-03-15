@@ -49,7 +49,7 @@ local state = {
   inventory = {},     -- siteId -> sku -> entry
   price_rules = {},   -- siteId -> ruleId -> entry
   customers = {},     -- tenant -> customerId -> profile
-  orders = {},        -- orderId -> status, reason
+  orders = {},        -- orderId -> full order payload
   coupons = {},       -- code -> { type, value, currency, minOrder, expiresAt }
   webhooks = {},      -- tenant -> list of endpoints
   payments = {},      -- paymentId -> {orderId, amount, currency, provider, status}
@@ -57,6 +57,8 @@ local state = {
   returns = {},       -- returnId -> {status, reason}
   dlq = {},           -- dead-letter for outbox
   inventory_reservations = {}, -- orderId -> { siteId=..., items = { {sku, qty} } }
+  carts = {},         -- cartId -> { siteId, currency, items = { {sku, qty, price, currency, productId, title} } }
+  coupon_redemptions = {}, -- code -> count
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -193,14 +195,13 @@ function handlers.UpsertCustomer(cmd)
 end
 
 function handlers.UpsertOrderStatus(cmd)
-  state.orders[cmd.payload.orderId] = {
-    status = cmd.payload.status,
-    reason = cmd.payload.reason,
-    totalAmount = cmd.payload.totalAmount,
-    currency = cmd.payload.currency,
-    vatRate = cmd.payload.vatRate,
-    updatedAt = cmd.timestamp,
-  }
+  state.orders[cmd.payload.orderId] = state.orders[cmd.payload.orderId] or { items = {} }
+  state.orders[cmd.payload.orderId].status = cmd.payload.status
+  state.orders[cmd.payload.orderId].reason = cmd.payload.reason
+  state.orders[cmd.payload.orderId].totalAmount = cmd.payload.totalAmount or state.orders[cmd.payload.orderId].totalAmount
+  state.orders[cmd.payload.orderId].currency = cmd.payload.currency or state.orders[cmd.payload.orderId].currency
+  state.orders[cmd.payload.orderId].vatRate = cmd.payload.vatRate or state.orders[cmd.payload.orderId].vatRate
+  state.orders[cmd.payload.orderId].updatedAt = cmd.timestamp
   return ok(cmd.requestId, {
     orderId = cmd.payload.orderId,
     status = cmd.payload.status,
@@ -264,6 +265,7 @@ function handlers.ApplyCoupon(cmd)
   local new_total = math.max(0, order.totalAmount - discount)
   order.totalAmount = tax.round(new_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
   order.coupon = cmd.payload.code
+  state.coupon_redemptions[cmd.payload.code] = (state.coupon_redemptions[cmd.payload.code] or 0) + 1
   local ev = { type = "CouponApplied", orderId = cmd.payload.orderId, code = cmd.payload.code, discount = discount, requestId = cmd.requestId }
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId, totalAmount = order.totalAmount, code = cmd.payload.code })
@@ -276,6 +278,130 @@ function handlers.RemoveCoupon(cmd)
   local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, requestId = cmd.requestId }
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId })
+end
+
+-- Cart & Order creation
+
+local function assert_currency(cart_currency, item_currency)
+  if item_currency and cart_currency and item_currency ~= cart_currency then
+    return false, "currency_mismatch"
+  end
+  return true
+end
+
+function handlers.CartAddItem(cmd)
+  local cart = state.carts[cmd.payload.cartId] or { siteId = cmd.payload.siteId, currency = cmd.payload.currency, items = {} }
+  local ok_cur, cur_err = assert_currency(cart.currency, cmd.payload.currency)
+  if not ok_cur then return err(cmd.requestId, "INVALID_INPUT", cur_err) end
+  cart.currency = cart.currency or cmd.payload.currency
+  -- replace if same sku
+  local updated = false
+  for _, it in ipairs(cart.items) do
+    if it.sku == cmd.payload.sku then
+      it.qty = cmd.payload.qty
+      it.price = cmd.payload.price
+      it.title = cmd.payload.title or it.title
+      updated = true
+    end
+  end
+  if not updated then
+    table.insert(cart.items, {
+      sku = cmd.payload.sku,
+      productId = cmd.payload.productId,
+      qty = cmd.payload.qty,
+      price = cmd.payload.price,
+      currency = cmd.payload.currency,
+      title = cmd.payload.title,
+      variant = cmd.payload.variant,
+    })
+  end
+  state.carts[cmd.payload.cartId] = cart
+  return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
+end
+
+function handlers.CartRemoveItem(cmd)
+  local cart = state.carts[cmd.payload.cartId]
+  if not cart then return err(cmd.requestId, "NOT_FOUND", "cart not found") end
+  local keep = {}
+  for _, it in ipairs(cart.items) do
+    if it.sku ~= cmd.payload.sku then table.insert(keep, it) end
+  end
+  cart.items = keep
+  state.carts[cmd.payload.cartId] = cart
+  return ok(cmd.requestId, { cartId = cmd.payload.cartId, items = #cart.items })
+end
+
+local function compute_totals(cart, coupon_code, vatRate, shipping)
+  local subtotal = 0
+  for _, it in ipairs(cart.items or {}) do
+    subtotal = subtotal + (it.price or 0) * (it.qty or 1)
+  end
+  local discount = 0
+  if coupon_code then
+    local dummy_order = { totalAmount = subtotal, currency = cart.currency }
+    local ok_coupon, reason = is_coupon_valid(coupon_code, dummy_order)
+    if not ok_coupon then
+      return nil, reason
+    end
+    local c = state.coupons[coupon_code]
+    if c then
+      if c.type == "percent" then discount = subtotal * (c.value or 0) / 100 else discount = c.value or 0 end
+      if c.maxRedemptions and (state.coupon_redemptions[coupon_code] or 0) >= c.maxRedemptions then
+        return nil, "coupon_exhausted"
+      end
+    end
+  end
+  local net = math.max(0, subtotal - discount)
+  local shipping_fee = shipping or tonumber(os.getenv("SHIPPING_FLAT_FEE") or "0") or 0
+  local vat = vatRate and net * vatRate or 0
+  local total = tax.round(net + vat + shipping_fee, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
+  return {
+    subtotal = tax.round(subtotal, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
+    discount = tax.round(discount, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
+    vat = tax.round(vat, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
+    shipping = shipping_fee,
+    total = total,
+  }
+end
+
+function handlers.CreateOrder(cmd)
+  local cart = state.carts[cmd.payload.cartId]
+  if not cart or #(cart.items or {}) == 0 then
+    return err(cmd.requestId, "NOT_FOUND", "cart empty or missing")
+  end
+  local vatRate = cmd.payload.vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
+  local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping)
+  if not totals then
+    return err(cmd.requestId, "INVALID_INPUT", total_err)
+  end
+  local orderId = "ord_" .. (cmd.payload.cartId or tostring(os.time()))
+  state.orders[orderId] = {
+    siteId = cmd.payload.siteId or cart.siteId,
+    customerId = cmd.payload.customerId,
+    currency = cart.currency,
+    items = cart.items,
+    status = "pending",
+    totals = totals,
+    coupon = cmd.payload.coupon,
+    vatRate = vatRate,
+    shipping = totals.shipping,
+    address = cmd.payload.address,
+    createdAt = cmd.timestamp,
+  }
+  if cmd.payload.coupon then
+    state.coupon_redemptions[cmd.payload.coupon] = (state.coupon_redemptions[cmd.payload.coupon] or 0) + 1
+  end
+  local ev = {
+    type = "OrderCreated",
+    orderId = orderId,
+    siteId = state.orders[orderId].siteId,
+    customerId = cmd.payload.customerId,
+    currency = cart.currency,
+    totalAmount = totals.total,
+    requestId = cmd.requestId,
+  }
+  enqueue_event(ev)
+  return ok(cmd.requestId, { orderId = orderId, totalAmount = totals.total, currency = cart.currency })
 end
 
 function handlers.CreatePaymentIntent(cmd)
