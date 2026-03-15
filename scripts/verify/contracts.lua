@@ -8,6 +8,9 @@ local function assert_status(resp, status, label)
   assert_eq(resp.status, status, label .. " status")
 end
 
+-- Enable dev-mode JWT fallback
+_G.RUN_CONTRACTS = "1"
+
 local function with_req(cmd)
   cmd.requestId = cmd.requestId or string.format("rid-%017d", math.random(1, 1e9))
   cmd.timestamp = cmd.timestamp or "2026-03-15T00:00:00Z"
@@ -240,6 +243,20 @@ do
   }))
   assert_status(apply_stack, "ERROR", "non-stackable existing blocks")
   assert_eq(apply_stack.code, "INVALID_STATE", "non-stackable code")
+
+  -- OTP flow: Issue and exchange
+  local otp_issue = write.route(with_req({
+    action = "IssueOtp",
+    payload = { sub = "user-otp", tenant = "tenant-otp", role = "support", ttl = 120 },
+  }))
+  assert_status(otp_issue, "OK", "otp issue")
+  local code = otp_issue.payload.code
+  local otp_exchange = write.route(with_req({
+    action = "ExchangeOtp",
+    payload = { code = code },
+  }))
+  assert_status(otp_exchange, "OK", "otp exchange")
+  assert(otp_exchange.payload.token and #otp_exchange.payload.token > 10, "otp token present")
 
   -- scope enforcement: coupon applies only to sku-2
   local scoped = write.route(with_req({

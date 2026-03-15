@@ -62,7 +62,9 @@ function Crypto.hmac_sha256_hex(message, secret)
     return (openssl.hex and openssl.hex(raw)) or raw:gsub(".", function(c) return string.format("%02x", string.byte(c)) end)
   end
   if sodium and sodium.crypto_auth then
-    return sodium.to_hex(sodium.crypto_auth(message, secret))
+    local tag = sodium.crypto_auth(message, secret)
+    local tohex = sodium.to_hex or function(str) return str:gsub(".", function(c) return string.format("%02x", string.byte(c)) end) end
+    return tohex(tag)
   end
   return nil
 end

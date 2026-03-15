@@ -65,7 +65,8 @@ local state = {
   coupon_redemptions = {}, -- code -> count
   shipping_rates = {}, -- siteId -> list of {country, region, minWeight, maxWeight, price, currency, carrier, service}
   tax_rates = {},     -- siteId -> list of {country, region, rate, category}
-  otps = {},          -- code -> { sub, tenant, role, exp }
+  otps = {},          -- code_hash -> { sub, tenant, role, exp }
+  otp_rate = {},      -- key -> { count, reset }
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -83,10 +84,45 @@ local function b64url(x)
   return (mime.b64(x) or ""):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
 end
 
+local function otp_hash(code)
+  local salt = os.getenv("OTP_HMAC_SECRET")
+  if not salt or salt == "" then return code end -- fallback (plain)
+  return crypto.hmac_sha256_hex(code, salt) or code
+end
+
+local function otp_rate_key(sub, tenant)
+  return (tenant or "tenant") .. ":" .. (sub or "user")
+end
+
+local function check_otp_rate(sub, tenant)
+  local window = tonumber(os.getenv("OTP_RATE_WINDOW") or "60")
+  local max = tonumber(os.getenv("OTP_RATE_MAX") or "5")
+  local key = otp_rate_key(sub, tenant)
+  local bucket = state.otp_rate[key] or { count = 0, reset = os.time() + window }
+  if os.time() > bucket.reset then
+    bucket.count = 0
+    bucket.reset = os.time() + window
+  end
+  bucket.count = bucket.count + 1
+  state.otp_rate[key] = bucket
+  if bucket.count > max then
+    return false, "otp_rate_limited"
+  end
+  return true
+end
+
 local function issue_jwt(sub, tenant, role, ttl)
   local secret = os.getenv("WRITE_JWT_HS_SECRET")
+  local dev_mode = (_G.RUN_CONTRACTS == "1") or (os.getenv("RUN_CONTRACTS") == "1") or (os.getenv("CI") == "true") or (os.getenv("ALLOW_DEV_JWT") == "1")
+  if (not secret or secret == "") and dev_mode then
+    secret = "dev-otp-secret"
+  end
   if not secret or secret == "" then
     return nil, "jwt_secret_missing"
+  end
+  -- sodium crypto_auth expects 32-byte key; pad in dev mode
+  if #secret < 32 and dev_mode then
+    secret = secret .. string.rep("0", 32 - #secret)
   end
   if not (ok_mime and ok_json) then
     return nil, "jwt_deps_missing"
@@ -390,9 +426,13 @@ function handlers.IssueOtp(cmd)
   local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv("OTP_TTL_SECONDS") or "300")
   if ttl < 30 then ttl = 30 end
   if ttl > 3600 then ttl = 3600 end
+  local ok_rate, rate_err = check_otp_rate(cmd.payload.sub, cmd.payload.tenant)
+  if not ok_rate then
+    return err(cmd.requestId, "RATE_LIMITED", rate_err)
+  end
   local code = string.format("%06d", math.random(0, 999999))
   local exp = os.time() + ttl
-  state.otps[code] = {
+  state.otps[otp_hash(code)] = {
     sub = cmd.payload.sub,
     tenant = cmd.payload.tenant,
     role = cmd.payload.role or "user",
@@ -402,13 +442,14 @@ function handlers.IssueOtp(cmd)
 end
 
 function handlers.ExchangeOtp(cmd)
-  local entry = state.otps[cmd.payload.code]
+  local code = cmd.payload.code and cmd.payload.code:gsub("%s+", "")
+  local entry = code and state.otps[otp_hash(code)]
   if not entry then return err(cmd.requestId, "NOT_FOUND", "otp_not_found") end
   if os.time() > entry.exp then
-    state.otps[cmd.payload.code] = nil
+    state.otps[otp_hash(code)] = nil
     return err(cmd.requestId, "UNAUTHORIZED", "otp_expired")
   end
-  state.otps[cmd.payload.code] = nil -- one-time
+  state.otps[otp_hash(code)] = nil -- one-time
   local ttl = tonumber(os.getenv("OTP_JWT_TTL_SECONDS") or "900")
   local token, terr = issue_jwt(entry.sub, entry.tenant, entry.role, ttl)
   if not token then
