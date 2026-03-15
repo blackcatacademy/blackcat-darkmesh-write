@@ -141,9 +141,10 @@
       "type": "object",
       "required": ["orderId", "amount"],
       "properties": {
-        "orderId": { "type": "string" },
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "amount": { "type": "number", "minimum": 0 },
-        "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK"] }
+        "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK", "CHF", "JPY", "AUD", "CAD"] },
+        "vatRate": { "type": "number", "minimum": 0, "maximum": 1 }
       },
       "additionalProperties": false
     },

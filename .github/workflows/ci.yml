@@ -48,6 +48,22 @@ jobs:
           ARWEAVE_VERIFY_TX: ${{ env.ARWEAVE_VERIFY_TX }}
         run: scripts/verify/verify_arweave_hash.sh "$ARWEAVE_VERIFY_FILE" "$ARWEAVE_VERIFY_TX"
 
+      - name: Luacheck
+        run: |
+          if command -v luacheck >/dev/null 2>&1; then
+            luacheck ao scripts
+          else
+            echo "luacheck missing" && exit 1
+          fi
+
+      - name: Stylua
+        run: |
+          if command -v stylua >/dev/null 2>&1; then
+            stylua --check ao scripts
+          else
+            echo "stylua missing" && exit 1
+          fi
+
       - name: Arweave hash verify (optional)
         if: env.ARWEAVE_VERIFY_FILE != '' && env.ARWEAVE_VERIFY_TX != ''
         env:
