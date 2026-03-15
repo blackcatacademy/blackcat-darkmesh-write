@@ -17,6 +17,7 @@ local state = {
   profiles = {},      -- subject -> profile
   entitlements = {},  -- subject -> list of {asset, policy}
 }
+local outbox = {}      -- emitted events for downstream (-ao bridge)
 
 local function ok(req_id, payload)
   return { status = "OK", requestId = req_id, payload = payload or {} }
@@ -44,6 +45,14 @@ function handlers.PublishPageVersion(cmd)
     return err(cmd.requestId, "VERSION_CONFLICT", "expectedVersion mismatch", { current = state.versions[siteId] })
   end
   state.versions[siteId] = cmd.payload.versionId
+  table.insert(outbox, {
+    type = "PublishPageVersion",
+    siteId = siteId,
+    pageId = cmd.payload.pageId,
+    versionId = cmd.payload.versionId,
+    manifestTx = cmd.payload.manifestTx,
+    requestId = cmd.requestId,
+  })
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
 end
 
@@ -120,6 +129,14 @@ function M.route(command)
   idem.record(command.requestId, response)
   audit.append({ action = command.action, requestId = command.requestId, status = response.status, actor = command.actor, tenant = command.tenant })
   return response
+end
+
+function M._state()
+  return state
+end
+
+function M._outbox()
+  return outbox
 end
 
 return M

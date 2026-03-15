@@ -65,6 +65,10 @@ do
   }))
   assert_status(conflict, "ERROR", "version conflict")
   assert_eq(conflict.code, "VERSION_CONFLICT", "conflict code")
+
+  local outbox = write._outbox()
+  assert(outbox and #outbox >= 1, "outbox should have publish event")
+  assert_eq(outbox[#outbox].manifestTx, "tx1", "outbox manifest matches")
 end
 
 -- Unknown action
