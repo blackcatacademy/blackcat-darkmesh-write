@@ -62,6 +62,7 @@ local state = {
   carts = {},         -- cartId -> { siteId, currency, items = { {sku, qty, price, currency, productId, title} } }
   coupon_redemptions = {}, -- code -> count
   shipping_rates = {}, -- siteId -> list of {country, region, minWeight, maxWeight, price, currency, carrier, service}
+  tax_rates = {},     -- siteId -> list of {country, region, rate, category}
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -410,7 +411,21 @@ function handlers.CreateOrder(cmd)
   if not cart or #(cart.items or {}) == 0 then
     return err(cmd.requestId, "NOT_FOUND", "cart empty or missing")
   end
-  local vatRate = cmd.payload.vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
+  -- derive vatRate from tax table if not provided
+  local vatRate = cmd.payload.vatRate
+  if not vatRate then
+    local site = cart.siteId or "default"
+    local rates = state.tax_rates[site] or {}
+    for _, r in ipairs(rates) do
+      local country_match = (not r.country) or (cmd.payload.address and r.country == string.upper(cmd.payload.address.country or ""))
+      local region_match = (not r.region) or (cmd.payload.address and r.region == cmd.payload.address.region)
+      if country_match and region_match then
+        vatRate = r.rate
+        break
+      end
+    end
+  end
+  vatRate = vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
   local totals, total_err = compute_totals(cart, cmd.payload.coupon, vatRate, cmd.payload.shipping)
   if not totals then
     return err(cmd.requestId, "INVALID_INPUT", total_err)
@@ -459,6 +474,33 @@ function handlers.AddShippingRate(cmd)
     service = cmd.payload.service,
   })
   return ok(cmd.requestId, { siteId = site, rates = #state.shipping_rates[site] })
+end
+
+function handlers.AddTaxRate(cmd)
+  local site = cmd.payload.siteId or "default"
+  state.tax_rates[site] = state.tax_rates[site] or {}
+  table.insert(state.tax_rates[site], {
+    country = (cmd.payload.country or ""):upper(),
+    region = cmd.payload.region,
+    rate = cmd.payload.rate,
+    category = cmd.payload.category,
+  })
+  return ok(cmd.requestId, { siteId = site, rates = #state.tax_rates[site] })
+end
+
+function handlers.ValidateAddress(cmd)
+  -- Stub: basic presence checks; real implementation would call provider API
+  if not cmd.payload.country or #cmd.payload.country < 2 then
+    return err(cmd.requestId, "INVALID_INPUT", "country_required")
+  end
+  return ok(cmd.requestId, { valid = true, normalized = {
+    country = cmd.payload.country:upper(),
+    region = cmd.payload.region,
+    city = cmd.payload.city,
+    postal = cmd.payload.postal,
+    line1 = cmd.payload.line1,
+    line2 = cmd.payload.line2,
+  }})
 end
 
 function handlers.GetShippingQuote(cmd)

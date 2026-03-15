@@ -85,6 +85,30 @@
       },
       "additionalProperties": false
     },
+    "AddTaxRate": {
+      "type": "object",
+      "required": ["country", "rate"],
+      "properties": {
+        "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+        "region": { "type": "string" },
+        "rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "category": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ValidateAddress": {
+      "type": "object",
+      "required": ["country"],
+      "properties": {
+        "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+        "region": { "type": "string" },
+        "city": { "type": "string" },
+        "postal": { "type": "string" },
+        "line1": { "type": "string" },
+        "line2": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "CreateOrder": {
       "type": "object",
       "required": ["cartId", "customerId", "siteId", "currency"],
