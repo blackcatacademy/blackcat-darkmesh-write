@@ -44,7 +44,9 @@
         "qty": { "type": "integer", "minimum": 1 },
         "price": { "type": "number", "minimum": 0 },
         "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
-        "variant": { "type": "object" }
+        "variant": { "type": "object" },
+        "weight": { "type": "number", "minimum": 0 },
+        "dimensions": { "type": "object" }
       },
       "additionalProperties": false
     },
@@ -54,6 +56,32 @@
       "properties": {
         "cartId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "sku": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "AddShippingRate": {
+      "type": "object",
+      "required": ["siteId", "country", "price", "currency"],
+      "properties": {
+        "siteId": { "type": "string" },
+        "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+        "region": { "type": "string" },
+        "minWeight": { "type": "number", "minimum": 0 },
+        "maxWeight": { "type": "number", "minimum": 0 },
+        "price": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+        "carrier": { "type": "string" },
+        "service": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "GetShippingQuote": {
+      "type": "object",
+      "required": ["cartId", "country"],
+      "properties": {
+        "cartId": { "type": "string" },
+        "country": { "type": "string", "minLength": 2, "maxLength": 2 },
+        "region": { "type": "string" }
       },
       "additionalProperties": false
     },

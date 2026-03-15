@@ -61,6 +61,7 @@ local state = {
   inventory_reservations = {}, -- orderId -> { siteId=..., items = { {sku, qty} } }
   carts = {},         -- cartId -> { siteId, currency, items = { {sku, qty, price, currency, productId, title} } }
   coupon_redemptions = {}, -- code -> count
+  shipping_rates = {}, -- siteId -> list of {country, region, minWeight, maxWeight, price, currency, carrier, service}
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -308,6 +309,8 @@ function handlers.CartAddItem(cmd)
       it.qty = cmd.payload.qty
       it.price = cmd.payload.price
       it.title = cmd.payload.title or it.title
+      it.weight = cmd.payload.weight or it.weight
+      it.dimensions = cmd.payload.dimensions or it.dimensions
       updated = true
     end
   end
@@ -320,6 +323,8 @@ function handlers.CartAddItem(cmd)
       currency = cmd.payload.currency,
       title = cmd.payload.title,
       variant = cmd.payload.variant,
+      weight = cmd.payload.weight,
+      dimensions = cmd.payload.dimensions,
     })
   end
   state.carts[cmd.payload.cartId] = cart
@@ -340,8 +345,10 @@ end
 
 local function compute_totals(cart, coupon_code, vatRate, shipping)
   local subtotal = 0
+  local total_weight = 0
   for _, it in ipairs(cart.items or {}) do
     subtotal = subtotal + (it.price or 0) * (it.qty or 1)
+    total_weight = total_weight + (it.weight or 0) * (it.qty or 1)
   end
   local discount = 0
   if coupon_code then
@@ -360,6 +367,17 @@ local function compute_totals(cart, coupon_code, vatRate, shipping)
   end
   local net = math.max(0, subtotal - discount)
   local shipping_fee = shipping or tonumber(os.getenv("SHIPPING_FLAT_FEE") or "0") or 0
+  -- try lookup rate table if no explicit shipping provided
+  if shipping == nil then
+    local rates = state.shipping_rates[cart.siteId or "default"] or {}
+    for _, r in ipairs(rates) do
+      local fits_weight = (not r.minWeight or total_weight >= r.minWeight) and (not r.maxWeight or total_weight <= r.maxWeight)
+      if fits_weight then
+        shipping_fee = r.price or shipping_fee
+        break
+      end
+    end
+  end
   local vat = vatRate and net * vatRate or 0
   local total = tax.round(net + vat + shipping_fee, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
   return {
@@ -409,6 +427,47 @@ function handlers.CreateOrder(cmd)
   }
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = orderId, totalAmount = totals.total, currency = cart.currency })
+end
+
+function handlers.AddShippingRate(cmd)
+  local site = cmd.payload.siteId or "default"
+  state.shipping_rates[site] = state.shipping_rates[site] or {}
+  table.insert(state.shipping_rates[site], {
+    country = (cmd.payload.country or ""):upper(),
+    region = cmd.payload.region,
+    minWeight = cmd.payload.minWeight,
+    maxWeight = cmd.payload.maxWeight,
+    price = cmd.payload.price,
+    currency = cmd.payload.currency,
+    carrier = cmd.payload.carrier,
+    service = cmd.payload.service,
+  })
+  return ok(cmd.requestId, { siteId = site, rates = #state.shipping_rates[site] })
+end
+
+function handlers.GetShippingQuote(cmd)
+  local cart = state.carts[cmd.payload.cartId]
+  if not cart then return err(cmd.requestId, "NOT_FOUND", "cart not found") end
+  local total_weight = 0
+  for _, it in ipairs(cart.items or {}) do
+    total_weight = total_weight + (it.weight or 0) * (it.qty or 1)
+  end
+  local site = cart.siteId or "default"
+  local rates = state.shipping_rates[site] or {}
+  local selected
+  for _, r in ipairs(rates) do
+    local country_match = (not r.country) or r.country == string.upper(cmd.payload.country)
+    local region_match = (not r.region) or (cmd.payload.region and r.region == cmd.payload.region)
+    local fits_weight = (not r.minWeight or total_weight >= r.minWeight) and (not r.maxWeight or total_weight <= r.maxWeight)
+    if country_match and region_match and fits_weight then
+      selected = r
+      break
+    end
+  end
+  if not selected then
+    return err(cmd.requestId, "NOT_FOUND", "no rate")
+  end
+  return ok(cmd.requestId, { price = selected.price, currency = selected.currency, carrier = selected.carrier, service = selected.service })
 end
 
 function handlers.CreatePaymentIntent(cmd)
