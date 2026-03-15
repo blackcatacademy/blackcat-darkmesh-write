@@ -15,6 +15,25 @@
       },
       "additionalProperties": false
     },
+    "IssueOtp": {
+      "type": "object",
+      "required": ["sub", "tenant"],
+      "properties": {
+        "sub": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tenant": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "ttl": { "type": "integer", "minimum": 30, "maximum": 3600 }
+      },
+      "additionalProperties": false
+    },
+    "ExchangeOtp": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code": { "type": "string", "minLength": 4, "maxLength": 12 }
+      },
+      "additionalProperties": false
+    },
     "ApplyCoupon": {
       "type": "object",
       "required": ["orderId", "code"],

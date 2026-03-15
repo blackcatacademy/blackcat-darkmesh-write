@@ -11,6 +11,8 @@ local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
 local stripe_ok, stripe = pcall(require, "ao.shared.stripe")
 local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
 local tax = require("ao.shared.tax")
+local ok_mime, mime = pcall(require, "mime")
+local ok_json, cjson = pcall(require, "cjson.safe")
 
 local function enqueue_event(ev)
   local q = storage.get("outbox_queue") or {}
@@ -63,6 +65,7 @@ local state = {
   coupon_redemptions = {}, -- code -> count
   shipping_rates = {}, -- siteId -> list of {country, region, minWeight, maxWeight, price, currency, carrier, service}
   tax_rates = {},     -- siteId -> list of {country, region, rate, category}
+  otps = {},          -- code -> { sub, tenant, role, exp }
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -75,6 +78,39 @@ local function err(req_id, code, msg, details)
 end
 
 local handlers = {}
+
+local function b64url(x)
+  return (mime.b64(x) or ""):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
+end
+
+local function issue_jwt(sub, tenant, role, ttl)
+  local secret = os.getenv("WRITE_JWT_HS_SECRET")
+  if not secret or secret == "" then
+    return nil, "jwt_secret_missing"
+  end
+  if not (ok_mime and ok_json) then
+    return nil, "jwt_deps_missing"
+  end
+  local now = os.time()
+  local header = b64url(cjson.encode({ alg = "HS256", typ = "JWT" }))
+  local payload_tbl = {
+    iss = "blackcat-write",
+    sub = sub,
+    tenant = tenant,
+    role = role,
+    iat = now,
+    exp = now + ttl,
+    nonce = "n-" .. tostring(math.random(1, 1e9)),
+    jti = "j-" .. tostring(math.random(1, 1e9)),
+  }
+  local payload = b64url(cjson.encode(payload_tbl))
+  local signing = header .. "." .. payload
+  local sig_hex = crypto.hmac_sha256_hex(signing, secret)
+  if not sig_hex then return nil, "jwt_sign_failed" end
+  local sig = sig_hex:gsub("%x%x", function(x) return string.char(tonumber(x, 16)) end)
+  local token = signing .. "." .. b64url(sig)
+  return token
+end
 
 function handlers.SaveDraftPage(cmd)
   local key = (cmd.payload.siteId or "") .. ":" .. (cmd.payload.pageId or "")
@@ -347,6 +383,38 @@ function handlers.RemoveCoupon(cmd)
   local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, code = cmd.payload.code, requestId = cmd.requestId }
   enqueue_event(ev)
   return ok(cmd.requestId, { orderId = cmd.payload.orderId })
+end
+
+-- OTP issuance and exchange for short-lived JWT
+function handlers.IssueOtp(cmd)
+  local ttl = tonumber(cmd.payload.ttl) or tonumber(os.getenv("OTP_TTL_SECONDS") or "300")
+  if ttl < 30 then ttl = 30 end
+  if ttl > 3600 then ttl = 3600 end
+  local code = string.format("%06d", math.random(0, 999999))
+  local exp = os.time() + ttl
+  state.otps[code] = {
+    sub = cmd.payload.sub,
+    tenant = cmd.payload.tenant,
+    role = cmd.payload.role or "user",
+    exp = exp,
+  }
+  return ok(cmd.requestId, { code = code, expiresAt = exp })
+end
+
+function handlers.ExchangeOtp(cmd)
+  local entry = state.otps[cmd.payload.code]
+  if not entry then return err(cmd.requestId, "NOT_FOUND", "otp_not_found") end
+  if os.time() > entry.exp then
+    state.otps[cmd.payload.code] = nil
+    return err(cmd.requestId, "UNAUTHORIZED", "otp_expired")
+  end
+  state.otps[cmd.payload.code] = nil -- one-time
+  local ttl = tonumber(os.getenv("OTP_JWT_TTL_SECONDS") or "900")
+  local token, terr = issue_jwt(entry.sub, entry.tenant, entry.role, ttl)
+  if not token then
+    return err(cmd.requestId, "SERVER_ERROR", terr or "jwt_failed")
+  end
+  return ok(cmd.requestId, { token = token, exp = os.time() + ttl, role = entry.role, tenant = entry.tenant, sub = entry.sub })
 end
 
 -- Cart & Order creation

@@ -27,6 +27,8 @@ local role_policy = {
   GrantEntitlement   = { "access-admin", "admin" },
   RevokeEntitlement  = { "access-admin", "admin" },
   UpsertProfile      = { "editor", "admin" },
+  IssueOtp           = { "admin", "support" },
+  ExchangeOtp        = { "admin", "support", "editor", "catalog-admin", "access-admin" },
 }
 
 function Auth._set_flags(opts)
