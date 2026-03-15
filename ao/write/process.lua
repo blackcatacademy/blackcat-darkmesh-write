@@ -8,6 +8,8 @@ local storage = require("ao.shared.storage")
 local bridge = require("ao.shared.bridge")
 local crypto = require("ao.shared.crypto")
 local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
+local stripe_ok, stripe = pcall(require, "ao.shared.stripe")
+local paypal_ok, paypal = pcall(require, "ao.shared.paypal")
 local tax = require("ao.shared.tax")
 
 local function enqueue_event(ev)
@@ -219,6 +221,11 @@ function handlers.IssueRefund(cmd)
     else
       return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
     end
+  elseif payment and payment.provider == "stripe" and payment.providerPaymentId then
+    if stripe_ok then
+      local ok, perr = stripe.refund(payment.providerPaymentId, cmd.payload.amount)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr or "stripe refund failed") end
+    end
   end
   local ev = {
     type = "IssueRefund",
@@ -429,6 +436,28 @@ function handlers.CreatePaymentIntent(cmd)
     else
       status = "requires_capture"
     end
+  elseif provider == "stripe" then
+    if stripe_ok then
+      providerPaymentId, gatewayUrl, status = stripe.create_payment({
+        orderId = cmd.payload.orderId,
+        amount = cmd.payload.amount,
+        currency = cmd.payload.currency,
+        returnUrl = cmd.payload.returnUrl,
+        description = cmd.payload.description,
+        metadata = cmd.payload.providerMetadata,
+      })
+    end
+  elseif provider == "paypal" then
+    if paypal_ok then
+      providerPaymentId, gatewayUrl, status = paypal.create_payment({
+        orderId = cmd.payload.orderId,
+        amount = cmd.payload.amount,
+        currency = cmd.payload.currency,
+        returnUrl = cmd.payload.returnUrl,
+        description = cmd.payload.description,
+        metadata = cmd.payload.providerMetadata,
+      })
+    end
   end
   state.payments[pid] = {
     orderId = cmd.payload.orderId,
@@ -483,6 +512,16 @@ function handlers.CapturePayment(cmd)
     else
       return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
     end
+  elseif payment.provider == "stripe" and payment.providerPaymentId then
+    if stripe_ok then
+      local ok, perr = stripe.capture(payment.providerPaymentId)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+    end
+  elseif payment.provider == "paypal" and payment.providerPaymentId then
+    if paypal_ok then
+      local ok, perr = paypal.capture(payment.providerPaymentId)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+    end
   end
   payment.status = "captured"
   payment.capturedAt = cmd.timestamp
@@ -513,6 +552,16 @@ function handlers.VoidPayment(cmd)
       if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
     else
       return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
+    end
+  elseif payment.provider == "stripe" and payment.providerPaymentId then
+    if stripe_ok then
+      local ok, perr = stripe.void(payment.providerPaymentId, cmd.payload.reason)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+    end
+  elseif payment.provider == "paypal" and payment.providerPaymentId then
+    if paypal_ok then
+      local ok, perr = paypal.void(payment.providerPaymentId, cmd.payload.reason)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
     end
   end
   payment.status = "voided"
@@ -663,6 +712,80 @@ function handlers.ProviderWebhook(cmd)
         return ok(cmd.requestId, { paymentId = pid, status = p.status })
       end
     end
+  end
+  if cmd.payload.provider == "stripe" then
+    local secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    if secret and cmd.payload.raw and cmd.payload.raw.body then
+      local sig = cmd.payload.raw.headers and cmd.payload.raw.headers["Stripe-Signature"]
+      local ok_sig = stripe_ok and stripe.verify_webhook(cmd.payload.raw.body, sig, secret, tonumber(os.getenv("STRIPE_WEBHOOK_TOLERANCE") or "300"))
+      if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+    end
+    local status_map = {
+      ["payment_intent.succeeded"] = "captured",
+      ["payment_intent.payment_failed"] = "failed",
+      ["payment_intent.canceled"] = "voided",
+      ["charge.refunded"] = "refunded",
+      ["charge.refund.updated"] = "refunded",
+      ["payment_intent.processing"] = "pending",
+      ["payment_intent.requires_action"] = "requires_capture",
+    }
+    local new_status = status_map[cmd.payload.eventType] or "pending"
+    for pid, p in pairs(state.payments) do
+      if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
+        p.status = new_status
+        p.updatedAt = cmd.timestamp
+        local ev = {
+          type = "PaymentStatusChanged",
+          paymentId = pid,
+          providerStatus = cmd.payload.eventType,
+          status = p.status,
+          requestId = cmd.requestId,
+        }
+        enqueue_event(ev)
+        if p.orderId and state.orders[p.orderId] then
+          state.orders[p.orderId].status = (new_status == "captured") and "paid" or state.orders[p.orderId].status
+          enqueue_event({
+            type = "OrderStatusUpdated",
+            orderId = p.orderId,
+            status = state.orders[p.orderId].status,
+            requestId = cmd.requestId,
+          })
+        end
+        return ok(cmd.requestId, { paymentId = pid, status = p.status })
+      end
+    end
+    return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
+  end
+  if cmd.payload.provider == "paypal" then
+    local secret = os.getenv("PAYPAL_WEBHOOK_SECRET")
+    if secret and cmd.payload.raw and cmd.payload.raw.body then
+      local sig = cmd.payload.raw.headers and (cmd.payload.raw.headers["PayPal-Transmission-Sig"] or cmd.payload.raw.headers["PP-Signature"])
+      local ok_sig = paypal_ok and paypal.verify_webhook(cmd.payload.raw.body, sig, secret)
+      if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+    end
+    local status_map = {
+      ["PAYMENT.CAPTURE.COMPLETED"] = "captured",
+      ["PAYMENT.CAPTURE.DENIED"] = "failed",
+      ["PAYMENT.CAPTURE.REFUNDED"] = "refunded",
+      ["PAYMENT.CAPTURE.REVERSED"] = "voided",
+      ["CHECKOUT.ORDER.APPROVED"] = "requires_capture",
+    }
+    local new_status = status_map[cmd.payload.eventType] or "pending"
+    for pid, p in pairs(state.payments) do
+      if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
+        p.status = new_status
+        p.updatedAt = cmd.timestamp
+        enqueue_event({
+          type = "PaymentStatusChanged",
+          paymentId = pid,
+          providerStatus = cmd.payload.eventType,
+          status = p.status,
+          requestId = cmd.requestId,
+        })
+        return ok(cmd.requestId, { paymentId = pid, status = p.status })
+      end
+    end
+    return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
   end
   return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
 end

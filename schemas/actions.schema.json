@@ -217,7 +217,7 @@
         "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "amount": { "type": "number", "minimum": 0 },
         "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK", "CHF", "JPY", "AUD", "CAD"] },
-        "provider": { "type": "string", "enum": ["gopay", "manual", "stripe"], "default": "manual" },
+        "provider": { "type": "string", "enum": ["gopay", "manual", "stripe", "paypal"], "default": "manual" },
         "returnUrl": { "type": "string" },
         "description": { "type": "string" },
         "providerMetadata": { "type": "object" }
