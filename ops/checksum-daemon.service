@@ -1,0 +1,17 @@
+[Unit]
+Description=Blackcat Write checksum monitor
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/blackcat-darkmesh-write
+# Define in /etc/blackcat/write.env: CHECKSUM_INTERVAL_SEC, WRITE_WAL_PATH, AO_QUEUE_PATH
+EnvironmentFile=/etc/blackcat/write.env
+ExecStart=/usr/bin/env CHECKSUM_INTERVAL_SEC=${CHECKSUM_INTERVAL_SEC:-300} WRITE_WAL_PATH=${WRITE_WAL_PATH} AO_QUEUE_PATH=${AO_QUEUE_PATH} bash scripts/verify/checksum_daemon.sh
+Restart=always
+RestartSec=2
+User=blackcat
+Group=blackcat
+
+[Install]
+WantedBy=multi-user.target
