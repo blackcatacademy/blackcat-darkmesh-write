@@ -45,6 +45,8 @@ scripts/bridge/    # stub forwarder from write outbox to -ao
 - `WRITE_REQUIRE_NONCE=1` — reject commands without nonce and block replay.
 - `WRITE_NONCE_TTL_SECONDS` (default 300) and `WRITE_NONCE_MAX` (default 2048) — nonce cache sizing.
 - `WRITE_ALLOW_ANON=1` — allow missing actor/tenant (off by default).
+- `WRITE_SIG_TYPE=ed25519|hmac`, with `WRITE_SIG_PUBLIC` (ed25519 PEM) or `WRITE_SIG_SECRET` (hmac key) to verify `signature` field.
+- `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
