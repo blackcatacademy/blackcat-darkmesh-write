@@ -237,6 +237,8 @@ do
   forbid("GrantRole", "viewer", { tenant = "t1", subject = "u1", role = "editor" })
   forbid("GrantEntitlement", "viewer", { subject = "u1", asset = "a1", policy = "p1" })
   forbid("RevokeEntitlement", "viewer", { subject = "u1", asset = "a1" })
+  forbid("CreateWebhook", "viewer", { tenant = "t1", url = "https://x", events = { "PublishPageVersion" } })
+  forbid("UpsertProfile", "viewer", { subject = "u1", profile = {} })
 end
 
 -- rate limit breach
