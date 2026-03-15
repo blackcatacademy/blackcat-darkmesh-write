@@ -386,6 +386,7 @@ function handlers.CartAddItem(cmd)
       variant = cmd.payload.variant,
       weight = cmd.payload.weight,
       dimensions = cmd.payload.dimensions,
+      categoryId = cmd.payload.categoryId,
     })
   end
   state.carts[cmd.payload.cartId] = cart
@@ -452,6 +453,27 @@ local function compute_totals(cart, coupon_code, vatRate, shipping, address)
     end
   end
   local vat = vatRate and net * vatRate or 0
+  -- per-item tax if table is available
+  local site = cart.siteId or "default"
+  local rates = state.tax_rates[site] or {}
+  local country = address and address.country and address.country:upper()
+  local region = address and address.region
+  local function match_rate(cat)
+    for _, r in ipairs(rates) do
+      local country_match = (not r.country) or (country and r.country == country)
+      local region_match = (not r.region) or (region and r.region == region)
+      local cat_match = (not r.category) or (cat and r.category == cat)
+      if country_match and region_match and cat_match then
+        return r.rate
+      end
+    end
+  end
+  local vat_total = 0
+  for _, it in ipairs(cart.items or {}) do
+    local rate = match_rate(it.categoryId) or vatRate or tonumber(os.getenv("TAX_RATE_DEFAULT") or "0")
+    vat_total = vat_total + ((it.price or 0) * (it.qty or 1) * (rate or 0))
+  end
+  vat = tax.round(vat_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
   local total = tax.round(net + vat + shipping_fee, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
   return {
     subtotal = tax.round(subtotal, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2),
