@@ -16,6 +16,8 @@ local templates = {
   PaymentCaptured = function(ev) return string.format("Payment %s captured for order %s", ev.paymentId or "?", ev.orderId or "?") end,
   ShipmentUpdated = function(ev) return string.format("Shipment %s is %s", ev.shipmentId or "?", ev.status or "updated") end,
   ReturnUpdated = function(ev) return string.format("Return %s is %s", ev.returnId or "?", ev.status or "updated") end,
+  PaymentStatusChanged = function(ev) return string.format("Payment %s -> %s (provider=%s)", ev.paymentId or "?", ev.status or ev.providerStatus or "unknown", ev.provider or "?") end,
+  OrderStatusUpdated = function(ev) return string.format("Order %s -> %s", ev.orderId or "?", ev.status or "unknown") end,
 }
 
 local function send_email(text)
