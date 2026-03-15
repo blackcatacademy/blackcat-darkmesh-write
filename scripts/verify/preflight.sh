@@ -85,7 +85,7 @@ if #events == 0 then error("outbox persistence missing") end
 os.remove(tmp)
 LUA
   fi
-  if [ "${RUN_BATCH:-0}" -eq 1 ]; then
+  if [ "${RUN_BATCH:-1}" -eq 1 ]; then
     echo "[verify] fixtures batch run"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/cli/batch_run.lua"
   fi
