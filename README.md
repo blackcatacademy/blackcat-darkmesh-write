@@ -48,6 +48,7 @@ scripts/cli/       # local helpers (run command)
 - `WRITE_NONCE_TTL_SECONDS` (default 300) and `WRITE_NONCE_MAX` (default 2048) — nonce cache sizing.
 - `WRITE_ALLOW_ANON=1` — allow missing actor/tenant (off by default).
 - `WRITE_SIG_TYPE=ed25519|ecdsa|hmac` (prod default: `ed25519`); `WRITE_SIG_PUBLIC` (PEM) or `WRITE_SIG_SECRET` (hmac key) to verify `signature`.
+- Optional JWT gate: set `WRITE_JWT_HS_SECRET` (HS256) and optionally `WRITE_REQUIRE_JWT=1` to fail-closed; claims `sub/tenant/role/nonce` populate `actor/tenant/role/nonce` when missing.
 - `WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson` — append-only WAL with request/response hashes.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
 - `WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json` — persist outbox events (used by forwarders/export).
