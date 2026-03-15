@@ -39,6 +39,10 @@ function Stripe.create_payment(args)
       capture_method = "manual",
       automatic_payment_methods__enabled = "true",
       return_url = args.returnUrl,
+      payment_method = args.paymentMethodToken,
+      confirm = args.paymentMethodToken and "true" or nil,
+      off_session = args.paymentMethodToken and "true" or nil,
+      setup_future_usage = args.saveForFuture and "off_session" or nil,
     })
     if not resp then return nil, nil, "pending" end
     local status_map = {
@@ -131,7 +135,7 @@ function Stripe.verify_webhook(body, sig_header, secret, tolerance_sec)
   if expected ~= parts.v1 then return false end
   local now = os.time()
   local ts = tonumber(parts.t)
-  local tol = tolerance_sec or 300
+  local tol = tolerance_sec or tonumber(os.getenv("STRIPE_WEBHOOK_TOLERANCE") or "300")
   if ts and math.abs(now - ts) > tol then return false end
   return true
 end

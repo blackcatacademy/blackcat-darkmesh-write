@@ -69,6 +69,7 @@ local state = {
   tax_rates = {},     -- siteId -> list of {country, region, rate, category}
   otps = {},          -- code_hash -> { sub, tenant, role, exp }
   otp_rate = {},      -- key -> { count, reset }
+  payment_tokens = {}, -- customerId -> provider -> token
 }
 
 -- load persisted carts if available
@@ -779,6 +780,7 @@ function handlers.CreatePaymentIntent(cmd)
         currency = cmd.payload.currency,
         returnUrl = cmd.payload.returnUrl,
         description = cmd.payload.description,
+        paymentMethodToken = cmd.payload.paymentMethodToken,
       })
       providerPaymentId, gatewayUrl = pid_out, gw
       if state == "CREATED" or state == "AUTHORIZED" then
@@ -800,6 +802,8 @@ function handlers.CreatePaymentIntent(cmd)
         returnUrl = cmd.payload.returnUrl,
         description = cmd.payload.description,
         metadata = cmd.payload.providerMetadata,
+        paymentMethodToken = cmd.payload.paymentMethodToken,
+        saveForFuture = cmd.payload.saveForFuture,
       })
     end
   elseif provider == "paypal" then
@@ -811,6 +815,7 @@ function handlers.CreatePaymentIntent(cmd)
         returnUrl = cmd.payload.returnUrl,
         description = cmd.payload.description,
         metadata = cmd.payload.providerMetadata,
+        paymentMethodToken = cmd.payload.paymentMethodToken,
       })
     end
   end
@@ -826,7 +831,12 @@ function handlers.CreatePaymentIntent(cmd)
     providerUrl = (provider == "gopay" and (os.getenv("GOPAY_GATEWAY_URL") or "https://gw.gopay.com")) or nil,
     providerPaymentId = providerPaymentId,
     gatewayUrl = gatewayUrl,
+    tokenized = cmd.payload.paymentMethodToken ~= nil,
   }
+  if cmd.payload.customerId and cmd.payload.paymentMethodToken then
+    state.payment_tokens[cmd.payload.customerId] = state.payment_tokens[cmd.payload.customerId] or {}
+    state.payment_tokens[cmd.payload.customerId][provider] = cmd.payload.paymentMethodToken
+  end
   local ev = {
     type = "PaymentIntentCreated",
     paymentId = pid,
