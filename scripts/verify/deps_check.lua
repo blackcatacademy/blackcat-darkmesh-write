@@ -21,3 +21,13 @@ for _, d in ipairs(deps) do
 end
 
 if not ok_all then os.exit(1) end
+
+-- fail-closed if signatures are required but sodium/openssl unavailable
+if os.getenv("WRITE_REQUIRE_SIGNATURE") == "1" then
+  local ok_sodium = pcall(require, "sodium")
+  local ok_ossl = pcall(require, "openssl")
+  if not (ok_sodium or ok_ossl) then
+    io.stderr:write("signature required but sodium/openssl missing\n")
+    os.exit(1)
+  end
+end
