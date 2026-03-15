@@ -182,6 +182,47 @@ do
   assert_status(resp, "ERROR", "missing actor/tenant")
 end
 
+-- replay id across different actions should return first response
+do
+  local write = require("ao.write.process")
+  local rid = "rid-cross-action"
+  local first = write.route(with_req({
+    action = "SaveDraftPage",
+    requestId = rid,
+    role = "editor",
+    payload = { siteId = "s1", pageId = "p1", locale = "en", blocks = {} },
+  }))
+  assert_status(first, "OK", "first action ok")
+  local second = write.route(with_req({
+    action = "PublishPageVersion",
+    requestId = rid,
+    role = "publisher",
+    payload = { siteId = "s1", pageId = "p1", versionId = "v1", manifestTx = "tx1" },
+  }))
+  assert_status(second, "OK", "idempotent replay returns stored response")
+  assert_eq(second.payload and second.payload.draftKey, nil, "replayed payload from first")
+end
+
+-- negative role tests for protected actions
+do
+  local write = require("ao.write.process")
+  local function forbid(action, role, payload)
+    local resp = write.route(with_req({ action = action, role = role, payload = payload }))
+    assert_status(resp, "ERROR", action .. " forbidden for role " .. role)
+  end
+  forbid("PublishPageVersion", "editor", { siteId = "s1", pageId = "p1", versionId = "v2", manifestTx = "tx2" })
+  forbid("UpsertRoute", "viewer", { siteId = "s1", path = "/x", target = "t" })
+  forbid("UpsertProduct", "viewer", { siteId = "s1", sku = "sku-x", payload = {} })
+  forbid("UpsertInventory", "viewer", { siteId = "s1", sku = "sku-y", quantity = 1, location = "wh1" })
+  forbid("UpsertPriceRule", "viewer", { siteId = "s1", ruleId = "r1", formula = "x", active = true })
+  forbid("UpsertCustomer", "viewer", { tenant = "t1", customerId = "c1", profile = {} })
+  forbid("UpsertOrderStatus", "viewer", { orderId = "o1", status = "paid" })
+  forbid("IssueRefund", "viewer", { orderId = "o1", amount = 1 })
+  forbid("GrantRole", "viewer", { tenant = "t1", subject = "u1", role = "editor" })
+  forbid("GrantEntitlement", "viewer", { subject = "u1", asset = "a1", policy = "p1" })
+  forbid("RevokeEntitlement", "viewer", { subject = "u1", asset = "a1" })
+end
+
 -- rate limit breach
 do
   package.loaded["ao.shared.auth"] = nil
