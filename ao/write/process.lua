@@ -70,6 +70,7 @@ local state = {
   otps = {},          -- code_hash -> { sub, tenant, role, exp }
   otp_rate = {},      -- key -> { count, reset }
   payment_tokens = {}, -- customerId -> provider -> token
+  payment_disputes = {}, -- paymentId -> { status, reason, evidence }
 }
 
 -- load persisted carts if available
@@ -1175,16 +1176,17 @@ function handlers.ProviderWebhook(cmd)
     end
     for pid, p in pairs(state.payments) do
       if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        local status_map = {
-          PAID = "captured",
-          CHARGED = "captured",
-          AUTHORIZED = "requires_capture",
-          CREATED = "pending",
-          CANCELED = "voided",
-          REFUNDED = "refunded",
-          PARTIALLY_REFUNDED = "refunded",
-          RISK = "risk_review",
-        }
+  local status_map = {
+    PAID = "captured",
+    CHARGED = "captured",
+    AUTHORIZED = "requires_capture",
+    CREATED = "pending",
+    CANCELED = "voided",
+    REFUNDED = "refunded",
+    PARTIALLY_REFUNDED = "refunded",
+    RISK = "risk_review",
+    DISPUTED = "disputed",
+  }
         p.status = status_map[cmd.payload.status] or string.lower(cmd.payload.status)
         p.updatedAt = cmd.timestamp
         if p.orderId then
@@ -1243,26 +1245,14 @@ function handlers.ProviderWebhook(cmd)
     local new_status = status_map[cmd.payload.eventType] or "pending"
     for pid, p in pairs(state.payments) do
       if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        p.status = new_status
-        p.updatedAt = cmd.timestamp
-        local ev = {
-          type = "PaymentStatusChanged",
-          paymentId = pid,
-          providerStatus = cmd.payload.eventType,
-          status = p.status,
-          requestId = cmd.requestId,
-        }
-        enqueue_event(ev)
-        if p.orderId and state.orders[p.orderId] then
-          state.orders[p.orderId].status = (new_status == "captured") and "paid" or state.orders[p.orderId].status
-          enqueue_event({
-            type = "OrderStatusUpdated",
-            orderId = p.orderId,
-            status = state.orders[p.orderId].status,
-            requestId = cmd.requestId,
-          })
+        if cmd.payload.eventType:match("dispute") then
+          state.payment_disputes[pid] = state.payment_disputes[pid] or {}
+          state.payment_disputes[pid].status = new_status
+          state.payment_disputes[pid].reason = cmd.payload.reason
+          state.payment_disputes[pid].evidence = cmd.payload.evidence
         end
-        return ok(cmd.requestId, { paymentId = pid, status = p.status })
+        set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
+        return ok(cmd.requestId, { paymentId = pid, status = new_status })
       end
     end
     return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
@@ -1300,16 +1290,13 @@ function handlers.ProviderWebhook(cmd)
     local new_status = status_map[cmd.payload.eventType] or "pending"
     for pid, p in pairs(state.payments) do
       if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
-        p.status = new_status
-        p.updatedAt = cmd.timestamp
-        enqueue_event({
-          type = "PaymentStatusChanged",
-          paymentId = pid,
-          providerStatus = cmd.payload.eventType,
-          status = p.status,
-          requestId = cmd.requestId,
-        })
-        return ok(cmd.requestId, { paymentId = pid, status = p.status })
+        if cmd.payload.eventType:match("DISPUTE") then
+          state.payment_disputes[pid] = state.payment_disputes[pid] or {}
+          state.payment_disputes[pid].status = new_status
+          state.payment_disputes[pid].reason = cmd.payload.reason
+        end
+        set_payment_status(pid, new_status, cmd.payload.eventType, cmd.requestId)
+        return ok(cmd.requestId, { paymentId = pid, status = new_status })
       end
     end
     return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
