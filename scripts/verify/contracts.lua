@@ -170,6 +170,24 @@ do
   assert_status(webhook, "OK", "provider webhook")
 end
 
+-- Stripe dispute webhook propagates to payments/orders
+do
+  local pay = write.route(with_req({
+    action = "CreatePaymentIntent",
+    payload = { orderId = "o-dispute", amount = 50, currency = "USD", provider = "stripe" },
+  }))
+  assert_status(pay, "OK", "create stripe payment")
+  local wh = write.route(with_req({
+    action = "ProviderWebhook",
+    payload = { provider = "stripe", paymentId = pay.payload.paymentId, eventType = "charge.dispute.created", status = "disputed", reason = "fraud" },
+  }))
+  assert_status(wh, "OK", "stripe dispute webhook")
+  local st = write._state()
+  assert(st.payment_disputes[pay.payload.paymentId], "dispute recorded")
+  assert(st.payment_disputes[pay.payload.paymentId].status == "disputed", "dispute status set")
+  assert(st.orders["o-dispute"].status == "disputed", "order marked disputed")
+end
+
 -- Cart / pricing / order creation
 do
   write.route(with_req({
