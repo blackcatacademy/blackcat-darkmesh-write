@@ -167,6 +167,62 @@ do
   assert_status(webhook, "OK", "provider webhook")
 end
 
+-- Coupons enforcement: scope, redemptions, expiry
+do
+  -- seed coupon applicable to sku-1 with single redemption and expiry in future
+  local now = os.time()
+  local up = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = {
+      code = "ONEUSE10",
+      type = "percent",
+      value = 10,
+      currency = "USD",
+      maxRedemptions = 1,
+      startsAt = now - 100,
+      expiresAt = now + 1000,
+      applies_to = { "sku-1" },
+    },
+  }))
+  assert_status(up, "OK", "upsert coupon")
+
+  -- build order via cart + create order
+  local cart = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart1", siteId = "s6", sku = "sku-1", qty = 1, price = 100, currency = "USD" },
+  }))
+  assert_status(cart, "OK", "cart add")
+  local order = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart1", customerId = "cust1", siteId = "s6", currency = "USD" },
+  }))
+  assert_status(order, "OK", "order create")
+
+  local apply_ok = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order.payload.orderId, code = "ONEUSE10" },
+  }))
+  assert_status(apply_ok, "OK", "coupon apply first time")
+
+  -- second order should hit maxRedemptions
+  local cart2 = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart2", siteId = "s6", sku = "sku-1", qty = 1, price = 50, currency = "USD" },
+  }))
+  assert_status(cart2, "OK", "cart2 add")
+  local order2 = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart2", customerId = "cust2", siteId = "s6", currency = "USD" },
+  }))
+  assert_status(order2, "OK", "order2 create")
+  local apply_fail = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = order2.payload.orderId, code = "ONEUSE10" },
+  }))
+  assert_status(apply_fail, "ERROR", "coupon exhausted")
+  assert_eq(apply_fail.code, "INVALID_INPUT", "exhausted code")
+end
+
 -- Unknown action
 do
   local resp = write.route(with_req({ action = "Nope", payload = {} }))

@@ -143,6 +143,21 @@ function handlers.UpsertProfile(cmd)
   return ok(cmd.requestId, { subject = cmd.payload.subject })
 end
 
+function handlers.UpsertCoupon(cmd)
+  state.coupons[cmd.payload.code] = {
+    type = cmd.payload.type,
+    value = cmd.payload.value,
+    currency = cmd.payload.currency,
+    minOrder = cmd.payload.minOrder,
+    maxRedemptions = cmd.payload.maxRedemptions,
+    startsAt = cmd.payload.startsAt,
+    expiresAt = cmd.payload.expiresAt,
+    applies_to = cmd.payload.applies_to,
+    is_active = cmd.payload.is_active ~= false,
+  }
+  return ok(cmd.requestId, { code = cmd.payload.code })
+end
+
 function handlers.GrantEntitlement(cmd)
   local subj = cmd.payload.subject
   state.entitlements[subj] = state.entitlements[subj] or {}
@@ -271,7 +286,11 @@ end
 function handlers.ApplyCoupon(cmd)
   local order = state.orders[cmd.payload.orderId]
   if not order or not order.totalAmount then
-    return err(cmd.requestId, "NOT_FOUND", "order not found or no total")
+    if order and order.totals and order.totals.total then
+      order.totalAmount = order.totals.total
+    else
+      return err(cmd.requestId, "NOT_FOUND", "order not found or no total")
+    end
   end
   if order.coupon then
     return err(cmd.requestId, "INVALID_STATE", "coupon_already_applied")
