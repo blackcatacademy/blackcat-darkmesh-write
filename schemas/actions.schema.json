@@ -509,6 +509,22 @@
       },
       "additionalProperties": false
     },
+    "ProviderShippingWebhook": {
+      "type": "object",
+      "required": ["provider", "shipmentId", "orderId", "status"],
+      "properties": {
+        "provider": { "type": "string", "enum": ["shippo", "aftership", "mock", "carrier"] },
+        "shipmentId": { "type": "string" },
+        "orderId": { "type": "string" },
+        "status": { "type": "string" },
+        "tracking": { "type": "string" },
+        "carrier": { "type": "string" },
+        "labelUrl": { "type": "string" },
+        "eta": { "type": "string" },
+        "raw": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
     "DeleteRoute": {
       "type": "object",
       "required": ["siteId", "path"],

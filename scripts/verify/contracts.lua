@@ -229,6 +229,26 @@ do
   assert(st.payment_disputes[pay.payload.paymentId].evidence.file == "proof.pdf", "evidence file stored")
 end
 
+-- Provider shipping webhook updates shipment/order
+do
+  local wh = write.route(with_req({
+    action = "ProviderShippingWebhook",
+    payload = {
+      provider = "carrier",
+      shipmentId = "ship-hook-1",
+      orderId = "ord-hook-1",
+      status = "shipped",
+      tracking = "TRK123",
+      carrier = "DHL",
+      labelUrl = "https://labels.example/ship-hook-1.pdf",
+    },
+  }))
+  assert_status(wh, "OK", "shipping webhook processed")
+  local st = write._state()
+  assert(st.shipments["ship-hook-1"], "shipment stored")
+  assert(st.shipments["ship-hook-1"].status == "shipped", "status set")
+end
+
 -- Cart / pricing / order creation
 do
   write.route(with_req({

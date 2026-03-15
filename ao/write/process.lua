@@ -1420,6 +1420,37 @@ function handlers.ProviderWebhook(cmd)
   return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
 end
 
+function handlers.ProviderShippingWebhook(cmd)
+  local status = string.lower(cmd.payload.status or "")
+  state.shipments[cmd.payload.shipmentId] = state.shipments[cmd.payload.shipmentId] or {}
+  local sh = state.shipments[cmd.payload.shipmentId]
+  sh.orderId = cmd.payload.orderId or sh.orderId
+  sh.status = status ~= "" and status or (sh.status or "pending")
+  sh.tracking = cmd.payload.tracking or sh.tracking
+  sh.carrier = cmd.payload.carrier or sh.carrier
+  sh.labelUrl = cmd.payload.labelUrl or sh.labelUrl
+  sh.eta = cmd.payload.eta or sh.eta
+  enqueue_event({
+    type = "ShipmentUpdated",
+    shipmentId = cmd.payload.shipmentId,
+    orderId = sh.orderId,
+    status = sh.status,
+    tracking = sh.tracking,
+    carrier = sh.carrier,
+    labelUrl = sh.labelUrl,
+    requestId = cmd.requestId,
+  })
+  if sh.orderId then
+    enqueue_event({
+      type = "OrderStatusUpdated",
+      orderId = sh.orderId,
+      status = sh.status,
+      requestId = cmd.requestId,
+    })
+  end
+  return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = sh.status })
+end
+
 function handlers.CreateWebhook(cmd)
   local tenant = cmd.payload.tenant
   state.webhooks[tenant] = state.webhooks[tenant] or {}
