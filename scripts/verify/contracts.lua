@@ -440,6 +440,42 @@ do
   assert_status(order_fail, "ERROR", "expired coupon should fail in CreateOrder")
 end
 
+-- Category-scoped coupon enforcement
+do
+  local _ = write.route(with_req({
+    action = "UpsertCoupon",
+    payload = {
+      code = "BOOKS10",
+      type = "percent",
+      value = 10,
+      currency = "USD",
+      applies_to_categories = { "books" },
+      expiresAt = os.time() + 3600,
+    },
+  }))
+  local cart_bad = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart6", siteId = "s7", sku = "sku-ebook", qty = 1, price = 20, currency = "USD", categoryId = "ebooks" },
+  }))
+  assert_status(cart_bad, "OK", "cart6 add")
+  local order_fail = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart6", customerId = "cust6", siteId = "s7", currency = "USD", coupon = "BOOKS10" },
+  }))
+  assert_status(order_fail, "ERROR", "category coupon should block non-matching category")
+
+  local cart_ok = write.route(with_req({
+    action = "CartAddItem",
+    payload = { cartId = "cart7", siteId = "s7", sku = "sku-book", qty = 1, price = 20, currency = "USD", categoryId = "books" },
+  }))
+  assert_status(cart_ok, "OK", "cart7 add")
+  local order_ok = write.route(with_req({
+    action = "CreateOrder",
+    payload = { cartId = "cart7", customerId = "cust7", siteId = "s7", currency = "USD", coupon = "BOOKS10" },
+  }))
+  assert_status(order_ok, "OK", "category coupon should pass when category matches")
+end
+
 -- Unknown action
 do
   local resp = write.route(with_req({ action = "Nope", payload = {} }))
