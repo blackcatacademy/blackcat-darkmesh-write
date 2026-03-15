@@ -39,6 +39,12 @@ WantedBy=multi-user.target
 - `NOTIFY_DRY_RUN=1` keeps queue entries (no ACK); default ACKs delivered entries.
 - Optional SMTP: set `NOTIFY_SMTP_SENDMAIL` (path to sendmail), `NOTIFY_SMTP_FROM`, `NOTIFY_SMTP_TO` to send via local MTA.
 
+## OTP / passwordless login
+- Issue OTP: `action=IssueOtp` (role/admin/support only). TTL default 300s (`OTP_TTL_SECONDS`, min 30, max 3600). Response: `code`, `expiresAt`.
+- Deliver OTP: `lua scripts/cli/send_otp.lua <code> <email|phone>` (uses same NOTIFY/Twilio/SendGrid envs as notify_worker; prints fallback).
+- Exchange OTP for JWT: `action=ExchangeOtp` with the code. JWT TTL default 900s (`OTP_JWT_TTL_SECONDS`) and uses `WRITE_JWT_HS_SECRET`.
+- Claims in JWT: `sub`, `tenant`, `role`, `exp`, `nonce`, `jti`. Write/AO už JWT ověřují; nastav `WRITE_REQUIRE_JWT=1` v produkci, pokud chceš čistě token-only.
+
 ## Key rotation SOP (ed25519)
 - Rotate every 90 days or on incident.
 - Generate new keypair; install pubkey at `WRITE_SIG_PUBLIC`; record `sha256sum` in vault.
