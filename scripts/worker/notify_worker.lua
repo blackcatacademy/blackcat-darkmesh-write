@@ -9,6 +9,7 @@ local retry_limit = tonumber(os.getenv("NOTIFY_MAX_RETRIES") or "5")
 local dry_run = os.getenv("NOTIFY_DRY_RUN") == "1"
 
 local prom = os.getenv("PROM_FORMAT") == "1"
+local prom_path = os.getenv("NOTIFY_PROM_PATH")
 
 local templates = {
   OrderCreated = function(ev) return string.format("Order %s created, total %.2f %s", ev.orderId or "?", ev.totalAmount or 0, ev.currency or "") end,
@@ -110,7 +111,13 @@ local function run_once()
   end
   storage.put("notify_dlq", retry_q)
   if prom then
-    print(string.format("notify_sent %d\nnotify_failed %d\nnotify_dlq %d", sent, failed, #retry_q))
+    local text = string.format("notify_sent %d\nnotify_failed %d\nnotify_dlq %d\nnotify_queue %d\n", sent, failed, #retry_q, #keep)
+    if prom_path and prom_path ~= "" then
+      local f = io.open(prom_path, "w")
+      if f then f:write(text); f:close() end
+    else
+      print(text)
+    end
   else
     print(string.format("notify sent=%d failed=%d dlq=%d queue_remaining=%d", sent, failed, #retry_q, #keep))
   end
