@@ -385,6 +385,18 @@ do
   }))
   assert_status(rev, "OK", "revoke session")
 
+  -- Subscriptions
+  local sub = write.route(with_req({
+    action = "CreateSubscription",
+    payload = { subscriptionId = "sub-1", customerId = "cust-sub", planId = "plan-basic", status = "active" },
+  }))
+  assert_status(sub, "OK", "create subscription")
+  local up = write.route(with_req({
+    action = "UpdateSubscriptionStatus",
+    payload = { subscriptionId = "sub-1", status = "past_due" },
+  }))
+  assert_status(up, "OK", "update subscription")
+
   -- scope enforcement: coupon applies only to sku-2
   local scoped = write.route(with_req({
     action = "UpsertCoupon",

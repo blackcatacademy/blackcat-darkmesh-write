@@ -73,6 +73,7 @@ local state = {
   payment_tokens = {}, -- customerId -> provider -> token
   payment_disputes = {}, -- paymentId -> { status, reason, evidence }
   sessions = {},      -- sessionId -> { sub, tenant, role, exp, device }
+  subscriptions = {}, -- subscriptionId -> { customerId, planId, status, meta }
 }
 
 -- load persisted carts if available
@@ -345,6 +346,39 @@ function handlers.UpsertCustomer(cmd)
   state.customers[tenant] = state.customers[tenant] or {}
   state.customers[tenant][cmd.payload.customerId] = cmd.payload.profile
   return ok(cmd.requestId, { customerId = cmd.payload.customerId })
+end
+
+function handlers.CreateSubscription(cmd)
+  state.subscriptions[cmd.payload.subscriptionId] = {
+    customerId = cmd.payload.customerId,
+    planId = cmd.payload.planId,
+    status = cmd.payload.status or "active",
+    meta = cmd.payload.meta,
+    createdAt = cmd.timestamp,
+  }
+  enqueue_event({
+    type = "SubscriptionCreated",
+    subscriptionId = cmd.payload.subscriptionId,
+    customerId = cmd.payload.customerId,
+    planId = cmd.payload.planId,
+    status = cmd.payload.status or "active",
+    requestId = cmd.requestId,
+  })
+  return ok(cmd.requestId, { subscriptionId = cmd.payload.subscriptionId, status = state.subscriptions[cmd.payload.subscriptionId].status })
+end
+
+function handlers.UpdateSubscriptionStatus(cmd)
+  local sub = state.subscriptions[cmd.payload.subscriptionId]
+  if not sub then return err(cmd.requestId, "NOT_FOUND", "subscription not found") end
+  sub.status = cmd.payload.status
+  sub.updatedAt = cmd.timestamp
+  enqueue_event({
+    type = "SubscriptionStatusUpdated",
+    subscriptionId = cmd.payload.subscriptionId,
+    status = sub.status,
+    requestId = cmd.requestId,
+  })
+  return ok(cmd.requestId, { subscriptionId = cmd.payload.subscriptionId, status = sub.status })
 end
 
 function handlers.UpsertOrderStatus(cmd)

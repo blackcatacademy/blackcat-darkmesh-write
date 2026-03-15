@@ -31,6 +31,8 @@ local role_policy = {
   ExchangeOtp        = { "admin", "support", "editor", "catalog-admin", "access-admin" },
   IssueSession       = { "admin", "support" },
   RevokeSession      = { "admin", "support" },
+  CreateSubscription = { "support", "admin" },
+  UpdateSubscriptionStatus = { "support", "admin" },
 }
 
 function Auth._set_flags(opts)

@@ -46,6 +46,27 @@
       },
       "additionalProperties": false
     },
+    "CreateSubscription": {
+      "type": "object",
+      "required": ["subscriptionId", "customerId", "planId"],
+      "properties": {
+        "subscriptionId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "planId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "past_due", "canceled", "trialing"] },
+        "meta": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "UpdateSubscriptionStatus": {
+      "type": "object",
+      "required": ["subscriptionId", "status"],
+      "properties": {
+        "subscriptionId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "past_due", "canceled", "trialing"] }
+      },
+      "additionalProperties": false
+    },
     "ExchangeOtp": {
       "type": "object",
       "required": ["code"],
