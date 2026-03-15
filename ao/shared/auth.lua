@@ -60,6 +60,8 @@ local rate_store = {}
 local function getenv(name)
   return os.getenv(name) or _G[name]
 end
+local DEVICE_TOKEN = getenv("WRITE_DEVICE_TOKEN")
+local REQUIRE_DEVICE = getenv("WRITE_REQUIRE_DEVICE_TOKEN") == "1"
 
 local function prune_nonces()
   local now = os.time()
@@ -186,6 +188,17 @@ function Auth.check_policy(command, policy)
       if r == role then ok = true end
     end
     if not ok then return false, "forbidden" end
+  end
+  if REQUIRE_DEVICE then
+    if not command.deviceToken and not command["Device-Token"] then
+      return false, "missing_device_token"
+    end
+    if DEVICE_TOKEN and DEVICE_TOKEN ~= "" then
+      local tok = command.deviceToken or command["Device-Token"]
+      if tok ~= DEVICE_TOKEN then
+        return false, "device_token_mismatch"
+      end
+    end
   end
   return true
 end
