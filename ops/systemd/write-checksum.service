@@ -1,0 +1,20 @@
+[Unit]
+Description=Write checksum watchdog (wal/outbox)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/blackcat-darkmesh-write
+Environment=WRITE_WAL_PATH=/var/lib/ao/write-wal.ndjson
+Environment=WRITE_OUTBOX_PATH=/var/lib/ao/outbox-queue.ndjson
+Environment=WRITE_WAL_MAX_BYTES=5242880
+Environment=WRITE_OUTBOX_MAX_BYTES=2097152
+Environment=CHECKSUM_INTERVAL_SEC=60
+ExecStart=/usr/bin/env bash scripts/verify/checksum_daemon.sh
+Restart=always
+RestartSec=5s
+User=ao
+Group=ao
+
+[Install]
+WantedBy=multi-user.target
