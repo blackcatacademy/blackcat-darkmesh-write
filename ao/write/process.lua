@@ -80,6 +80,7 @@ local state = {
   scheduled = {},     -- list of { contentKey, siteId, pageId, versionId, publishAt }
   forms = {},         -- formId -> { schema, spam, webhooks }
   submissions = {},   -- formId -> list of submissions
+  translations = {},  -- taskId -> { siteId, pageId, sourceLocale, targetLocale, status, draft, reviewer, history }
 }
 
 -- load persisted carts if available
@@ -122,6 +123,10 @@ local role_policy = {
   CreateForm = { "editor", "publisher", "admin" },
   SubmitForm = { "*" },
   ListSubmissions = { "editor", "publisher", "admin" },
+  CreateTranslationTask = { "editor", "publisher", "admin" },
+  SubmitTranslation = { "translator", "editor", "publisher", "admin" },
+  ApproveTranslation = { "publisher", "admin" },
+  ListTranslations = { "editor", "publisher", "admin" },
 }
 
 local function b64url(x)
@@ -402,6 +407,62 @@ function handlers.ListSubmissions(cmd)
     table.insert(slice, list[i])
   end
   return ok(cmd.requestId, { total = #list, items = slice })
+end
+
+-- Translation workflow ----------------------------------------------------
+function handlers.CreateTranslationTask(cmd)
+  local taskId = cmd.payload.taskId or ("tr_" .. tostring(os.time()) .. "_" .. math.random(0, 9999))
+  state.translations[taskId] = {
+    siteId = cmd.payload.siteId,
+    pageId = cmd.payload.pageId,
+    sourceLocale = cmd.payload.sourceLocale,
+    targetLocale = cmd.payload.targetLocale,
+    status = "pending",
+    draft = cmd.payload.draft,
+    reviewer = cmd.payload.reviewer,
+    history = { { at = cmd.timestamp, by = cmd.actor, action = "create" } },
+  }
+  return ok(cmd.requestId, { taskId = taskId, status = "pending" })
+end
+
+function handlers.SubmitTranslation(cmd)
+  if not cmd.payload.taskId then return err(cmd.requestId, "INVALID_INPUT", "taskId required") end
+  local task = state.translations[cmd.payload.taskId]
+  if not task then return err(cmd.requestId, "NOT_FOUND", "translation task not found") end
+  task.translation = cmd.payload.translation
+  task.status = "submitted"
+  table.insert(task.history, { at = cmd.timestamp, by = cmd.actor, action = "submit" })
+  return ok(cmd.requestId, { taskId = cmd.payload.taskId, status = task.status })
+end
+
+function handlers.ApproveTranslation(cmd)
+  if not cmd.payload.taskId then return err(cmd.requestId, "INVALID_INPUT", "taskId required") end
+  local task = state.translations[cmd.payload.taskId]
+  if not task then return err(cmd.requestId, "NOT_FOUND", "translation task not found") end
+  task.status = "approved"
+  task.approvedAt = cmd.timestamp
+  task.approvedBy = cmd.actor
+  table.insert(task.history, { at = cmd.timestamp, by = cmd.actor, action = "approve" })
+  -- Optional autopublish as locale draft
+  local key = content_key(task.siteId, task.pageId) .. ":" .. (task.targetLocale or "")
+  state.drafts[key] = {
+    locale = task.targetLocale,
+    blocks = task.translation or task.draft,
+    updatedAt = cmd.timestamp,
+  }
+  return ok(cmd.requestId, { taskId = cmd.payload.taskId, status = task.status })
+end
+
+function handlers.ListTranslations(cmd)
+  local items = {}
+  for id, t in pairs(state.translations) do
+    if (not cmd.payload.siteId or t.siteId == cmd.payload.siteId)
+      and (not cmd.payload.targetLocale or t.targetLocale == cmd.payload.targetLocale)
+    then
+      table.insert(items, { taskId = id, task = t })
+    end
+  end
+  return ok(cmd.requestId, { total = #items, items = items })
 end
 
 local function content_key(siteId, pageId)
