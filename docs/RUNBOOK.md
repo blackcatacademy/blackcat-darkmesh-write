@@ -17,3 +17,8 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
+
+## Key rotation SOP (ed25519)
+- Rotate every 90 days or on incident.
+- Generate new keypair; install pubkey at `WRITE_SIG_PUBLIC`; record `sha256sum` in vault.
+- Restart write services; run health + signature tests; retire old key after validation.
