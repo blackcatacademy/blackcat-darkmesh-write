@@ -4,6 +4,7 @@ local validation = require("ao.shared.validation")
 local auth = require("ao.shared.auth")
 local idem = require("ao.shared.idempotency")
 local audit = require("ao.shared.audit")
+local storage = require("ao.shared.storage")
 
 local M = {}
 
@@ -53,6 +54,7 @@ function handlers.PublishPageVersion(cmd)
     manifestTx = cmd.payload.manifestTx,
     requestId = cmd.requestId,
   })
+  storage.append("outbox", outbox[#outbox])
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
 end
 
@@ -137,6 +139,10 @@ end
 
 function M._outbox()
   return outbox
+end
+
+function M._storage_outbox()
+  return storage.all("outbox")
 end
 
 return M
