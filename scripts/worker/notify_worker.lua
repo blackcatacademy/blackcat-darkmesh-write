@@ -6,6 +6,8 @@ local ok_luv, uv = pcall(require, "luv")
 
 local backoff_ms = tonumber(os.getenv("NOTIFY_BACKOFF_MS") or "1000")
 local retry_limit = tonumber(os.getenv("NOTIFY_MAX_RETRIES") or "5")
+local dry_run = os.getenv("NOTIFY_DRY_RUN") == "1"
+
 local prom = os.getenv("PROM_FORMAT") == "1"
 
 local templates = {
@@ -45,28 +47,39 @@ local function deliver(ev)
 end
 
 local function run_once()
+  local now = os.time()
   local q = storage.get("outbox_queue") or {}
+  local keep = {}
   local sent, failed = 0, 0
   local retry_q = storage.get("notify_dlq") or {}
   for _, entry in ipairs(q) do
-    local ev = entry.event or {}
-    local ok = deliver(ev)
-    if ok then
-      sent = sent + 1
+    -- honor scheduling
+    if entry.nextAttempt and entry.nextAttempt > now then
+      table.insert(keep, entry)
     else
-      failed = failed + 1
-      entry.attempts = (entry.attempts or 0) + 1
-      if entry.attempts < retry_limit then
-        entry.nextAttempt = os.time() + math.ceil(backoff_ms / 1000)
-        table.insert(retry_q, entry)
+      local ev = entry.event or {}
+      local ok = deliver(ev)
+      if ok then
+        sent = sent + 1
+        if dry_run then table.insert(keep, entry) end -- keep entry if dry-run
+      else
+        failed = failed + 1
+        entry.attempts = (entry.attempts or 0) + 1
+        if entry.attempts < retry_limit then
+          entry.nextAttempt = now + math.ceil(backoff_ms / 1000)
+          table.insert(retry_q, entry)
+        end
       end
     end
+  end
+  if not dry_run then
+    storage.put("outbox_queue", keep)
   end
   storage.put("notify_dlq", retry_q)
   if prom then
     print(string.format("notify_sent %d\nnotify_failed %d\nnotify_dlq %d", sent, failed, #retry_q))
   else
-    print(string.format("notify sent=%d failed=%d dlq=%d", sent, failed, #retry_q))
+    print(string.format("notify sent=%d failed=%d dlq=%d queue_remaining=%d", sent, failed, #retry_q, #keep))
   end
 end
 

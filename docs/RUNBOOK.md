@@ -33,6 +33,11 @@ WantedBy=multi-user.target
 - `UpdateShipmentTracking` can emit `trackingUrl` if `CARRIER_TRACK_URL` is set.
 - A stub generator is available: `scripts/bridge/carrier_label_stub.lua <shipmentId> [carrier] [service]` (prints label URL and tracking info).
 
+## Notifications
+- Use `scripts/worker/notify_worker.lua` to deliver/preview outbox events.
+- Set `NOTIFY_EMAIL_WEBHOOK` / `NOTIFY_SMS_WEBHOOK` for HTTP delivery; otherwise messages print to stdout.
+- `NOTIFY_DRY_RUN=1` keeps queue entries (no ACK); default ACKs delivered entries.
+
 ## Key rotation SOP (ed25519)
 - Rotate every 90 days or on incident.
 - Generate new keypair; install pubkey at `WRITE_SIG_PUBLIC`; record `sha256sum` in vault.
