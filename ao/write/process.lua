@@ -91,6 +91,11 @@ function M.route(command)
     return err(command.requestId, "INVALID_INPUT", "Envelope validation failed", env_errs)
   end
 
+  local ok_nonce, nonce_err = auth.require_nonce(command)
+  if not ok_nonce then
+    return err(command.requestId, "UNAUTHORIZED", nonce_err or "nonce failed")
+  end
+
   local ok_sig, sig_err = auth.verify_signature(command)
   if not ok_sig then
     return err(command.requestId, "UNAUTHORIZED", sig_err or "signature failed")

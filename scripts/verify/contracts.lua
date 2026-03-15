@@ -9,10 +9,10 @@ local function assert_status(resp, status, label)
 end
 
 local function with_req(cmd)
-  cmd.requestId = cmd.requestId or string.format("rid-%012d", math.random(1, 1e9))
+  cmd.requestId = cmd.requestId or string.format("rid-%015d", math.random(1, 1e9))
   cmd.timestamp = cmd.timestamp or "2026-03-15T00:00:00Z"
-  cmd.nonce = cmd.nonce or "nonce-123456"
-  cmd.signatureRef = cmd.signatureRef or "sigref-123456"
+  cmd.nonce = cmd.nonce or "nonce-12345678"
+  cmd.signatureRef = cmd.signatureRef or "sigref-12345678"
   cmd.actor = cmd.actor or "actor-1"
   cmd.tenant = cmd.tenant or "tenant-1"
   return cmd
@@ -33,22 +33,33 @@ end
 do
   local req = with_req({
     action = "UpsertRoute",
-    requestId = "rid-route",
+    requestId = "rid-route-123456",
+    nonce = "nonce-route-123456",
+    signatureRef = "sigref-route-123456",
     payload = { siteId = "s1", path = "/", target = "home" },
   })
   local r1 = write.route(req)
   local r2 = write.route(req)
+  assert_status(r1, "OK", "idempotent route first")
+  assert_status(r2, "OK", "idempotent route second")
   assert_eq(r1.payload.path, r2.payload.path, "idempotent route")
 end
 
 -- Version conflict
 do
-  write.route(with_req({
+  local first = write.route(with_req({
     action = "PublishPageVersion",
+    requestId = "rid-pub-0001",
+    nonce = "nonce-pub-0001",
+    signatureRef = "sigref-pub-0001",
     payload = { siteId = "s2", pageId = "home", versionId = "v1", manifestTx = "tx1" },
   }))
+  assert_status(first, "OK", "publish v1")
   local conflict = write.route(with_req({
     action = "PublishPageVersion",
+    requestId = "rid-pub-0002",
+    nonce = "nonce-pub-0002",
+    signatureRef = "sigref-pub-0002",
     payload = { siteId = "s2", pageId = "home", versionId = "v2", manifestTx = "tx2" },
     expectedVersion = "old",
   }))

@@ -51,4 +51,8 @@ if command -v lua5.4 >/dev/null 2>&1; then
     echo "[verify] contract smoke tests"
     LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/contracts.lua"
   fi
+  if [ "${RUN_CONFLICTS:-1}" -eq 1 ]; then
+    echo "[verify] conflict/security tests"
+    LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 "$ROOT_DIR/scripts/verify/conflicts.lua"
+  fi
 fi

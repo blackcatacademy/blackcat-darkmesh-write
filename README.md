@@ -35,8 +35,15 @@ tests/             # contract, conflict, and security tests
 - Prereqs: `lua5.4` (or `luac`) and `python3`.
 - Static checks: `scripts/verify/preflight.sh` (JSON schema validation + Lua syntax).
 - Contract smoke tests: `LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/verify/contracts.lua` (or set `RUN_CONTRACTS=1` to run during preflight).
+- Conflict/security smoke tests: `LUA_PATH="?.lua;?/init.lua;ao/?.lua;ao/?/init.lua" lua5.4 scripts/verify/conflicts.lua` (or `RUN_CONFLICTS=1`).
 - Branches: `main` (releasable), `develop` (integration), `feature/*`, `adr/*`, `release/*`.
 - Message contracts and schemas are public API; prefer additive changes over breaking ones.
+
+## Env toggles (write process)
+- `WRITE_REQUIRE_SIGNATURE=1` — reject commands without `signatureRef`.
+- `WRITE_REQUIRE_NONCE=1` — reject commands without nonce and block replay.
+- `WRITE_NONCE_TTL_SECONDS` (default 300) and `WRITE_NONCE_MAX` (default 2048) — nonce cache sizing.
+- `WRITE_ALLOW_ANON=1` — allow missing actor/tenant (off by default).
 
 ## Security Guard Rails
 - No secrets or raw keys in AO state, manifests, or adapters.
