@@ -88,3 +88,6 @@ jobs:
 
       - name: Secret scan (gitleaks)
         run: gitleaks detect --no-git -v
+
+      - name: Checksum alert (wal/queue)
+        run: scripts/verify/checksum_alert.sh

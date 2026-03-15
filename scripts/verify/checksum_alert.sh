@@ -12,7 +12,7 @@ check(){
   if [ -z "$path" ] || [ ! -f "$path" ]; then
     echo "$label: skip"
     return
-  end
+  fi
   local sz=$(stat -c%s "$path")
   local sha=$(sha256sum "$path" | awk '{print $1}')
   echo "$label: size=$sz hash=$sha"
