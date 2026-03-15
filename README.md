@@ -24,6 +24,7 @@ scripts/           # deploy | verify
 fixtures/          # sample command envelopes and expected outcomes
 tests/             # contract, conflict, and security tests
 scripts/bridge/    # stub forwarder from write outbox to -ao
+scripts/cli/       # local helpers (run command)
 .github/workflows/ # CI entrypoint
 ```
 
@@ -48,6 +49,9 @@ scripts/bridge/    # stub forwarder from write outbox to -ao
 - `WRITE_SIG_TYPE=ed25519|hmac`, with `WRITE_SIG_PUBLIC` (ed25519 PEM) or `WRITE_SIG_SECRET` (hmac key) to verify `signature` field.
 - `WRITE_IDEM_PATH=/var/lib/ao/write-idem.json` — persist idempotent responses across restarts (optional).
 - `WRITE_OUTBOX_PATH=/var/lib/ao/write-outbox.json` — persist outbox events (used by forwarders/export).
+
+## CLI helpers
+- `lua scripts/cli/run_command.lua ./fixtures/sample-command.json` — route a JSON command locally and print the response (uses in-memory state).
 
 ## Bridge (stub)
 - `scripts/bridge/forward_outbox.lua` reads the in-memory outbox (`write._storage_outbox()`) and logs events you would forward to `blackcat-darkmesh-ao`. Replace `forward_event` with signed POST to AO endpoint (registry/site process) in production.
