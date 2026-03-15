@@ -3,6 +3,7 @@
 local storage = require("ao.shared.storage")
 local Idem = {}
 local store = {}
+local IDEM_PATH = os.getenv("WRITE_IDEM_PATH")
 
 function Idem.lookup(request_id)
   return store[request_id]
@@ -10,6 +11,10 @@ end
 
 function Idem.record(request_id, outcome)
   store[request_id] = outcome
+  if IDEM_PATH then
+    storage.put("idempotency", store)
+    storage.persist(IDEM_PATH)
+  end
   return true
 end
 
@@ -24,6 +29,10 @@ function Idem.load(path)
     local persisted = storage.get("idempotency")
     if type(persisted) == "table" then store = persisted end
   end
+end
+
+if IDEM_PATH then
+  Idem.load(IDEM_PATH)
 end
 
 return Idem

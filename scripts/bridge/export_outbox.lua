@@ -4,6 +4,7 @@ local write = require("ao.write.process")
 local storage = require("ao.shared.storage")
 
 local out = arg[1] or "dev/outbox.ndjson"
+local persistence = os.getenv("WRITE_OUTBOX_PATH")
 
 local function ensure_dir(path)
   local dir = path:match("(.+)/[^/]+$")
@@ -39,6 +40,12 @@ end
 -- Ensure we have the latest outbox mirrored to storage
 local _ = write._outbox() -- triggers any pending updates
 local events = storage.all("outbox")
+
+-- refresh from persisted store if configured
+if persistence then
+  storage.load(persistence)
+  events = storage.all("outbox")
+end
 
 ensure_dir(out)
 local f = assert(io.open(out, "w"))

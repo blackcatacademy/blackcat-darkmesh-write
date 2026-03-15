@@ -5,6 +5,7 @@ local auth = require("ao.shared.auth")
 local idem = require("ao.shared.idempotency")
 local audit = require("ao.shared.audit")
 local storage = require("ao.shared.storage")
+local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 
 local M = {}
 
@@ -55,6 +56,7 @@ function handlers.PublishPageVersion(cmd)
     requestId = cmd.requestId,
   })
   storage.append("outbox", outbox[#outbox])
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
   return ok(cmd.requestId, { version = cmd.payload.versionId, manifestTx = cmd.payload.manifestTx })
 end
 
