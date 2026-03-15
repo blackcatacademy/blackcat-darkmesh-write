@@ -15,6 +15,23 @@
       },
       "additionalProperties": false
     },
+    "ApplyCoupon": {
+      "type": "object",
+      "required": ["orderId", "code"],
+      "properties": {
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 64 }
+      },
+      "additionalProperties": false
+    },
+    "RemoveCoupon": {
+      "type": "object",
+      "required": ["orderId"],
+      "properties": {
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      },
+      "additionalProperties": false
+    },
     "PublishPageVersion": {
       "type": "object",
       "required": ["siteId", "pageId", "versionId", "manifestTx"],
@@ -103,7 +120,9 @@
         "siteId": { "type": "string" },
         "ruleId": { "type": "string" },
         "formula": { "type": "string" },
-        "active": { "type": "boolean" }
+        "active": { "type": "boolean" },
+        "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK", "CHF", "JPY", "AUD", "CAD"] },
+        "vatRate": { "type": "number", "minimum": 0, "maximum": 1 }
       },
       "additionalProperties": false
     },
@@ -142,12 +161,66 @@
     },
     "IssueRefund": {
       "type": "object",
-      "required": ["orderId", "amount"],
+      "required": ["orderId", "amount", "currency"],
       "properties": {
         "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
         "amount": { "type": "number", "minimum": 0 },
         "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK", "CHF", "JPY", "AUD", "CAD"] },
         "vatRate": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "CreatePaymentIntent": {
+      "type": "object",
+      "required": ["orderId", "amount", "currency"],
+      "properties": {
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "amount": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CZK", "CHF", "JPY", "AUD", "CAD"] },
+        "provider": { "type": "string", "enum": ["gopay", "manual", "stripe"], "default": "manual" },
+        "returnUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "providerMetadata": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "CapturePayment": {
+      "type": "object",
+      "required": ["paymentId"],
+      "properties": {
+        "paymentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      },
+      "additionalProperties": false
+    },
+    "VoidPayment": {
+      "type": "object",
+      "required": ["paymentId"],
+      "properties": {
+        "paymentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertShipmentStatus": {
+      "type": "object",
+      "required": ["shipmentId", "status", "orderId"],
+      "properties": {
+        "shipmentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "status": { "type": "string", "enum": ["pending", "packed", "shipped", "delivered", "lost", "returned"] },
+        "tracking": { "type": "string" },
+        "carrier": { "type": "string" },
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+      },
+      "additionalProperties": false
+    },
+    "UpsertReturnStatus": {
+      "type": "object",
+      "required": ["returnId", "status", "orderId"],
+      "properties": {
+        "returnId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "status": { "type": "string", "enum": ["requested", "approved", "rejected", "received", "refunded", "closed"] },
+        "reason": { "type": "string" },
+        "orderId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
       },
       "additionalProperties": false
     },
@@ -158,6 +231,17 @@
         "tenant": { "type": "string" },
         "url": { "type": "string" },
         "events": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      },
+      "additionalProperties": false
+    },
+    "ProviderWebhook": {
+      "type": "object",
+      "required": ["provider", "paymentId", "status"],
+      "properties": {
+        "provider": { "type": "string", "enum": ["gopay"] },
+        "paymentId": { "type": "string" },
+        "status": { "type": "string" },
+        "raw": { "type": "object" }
       },
       "additionalProperties": false
     },

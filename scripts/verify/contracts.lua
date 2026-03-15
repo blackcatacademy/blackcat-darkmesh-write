@@ -53,7 +53,7 @@ do
     requestId = "rid-pub-0001",
     nonce = "nonce-pub-0001",
     signatureRef = "sigref-pub-0001",
-    payload = { siteId = "s2", pageId = "home", versionId = "v1", manifestTx = "tx1" },
+    payload = { siteId = "s2", pageId = "home", versionId = "v1", manifestTx = "tx1234567890" },
   }))
   assert_status(first, "OK", "publish v1")
   local conflict = write.route(with_req({
@@ -61,7 +61,7 @@ do
     requestId = "rid-pub-0002",
     nonce = "nonce-pub-0002",
     signatureRef = "sigref-pub-0002",
-    payload = { siteId = "s2", pageId = "home", versionId = "v2", manifestTx = "tx2" },
+    payload = { siteId = "s2", pageId = "home", versionId = "v2", manifestTx = "tx2234567890" },
     expectedVersion = "old",
   }))
   assert_status(conflict, "ERROR", "version conflict")
@@ -69,7 +69,7 @@ do
 
   local outbox = write._outbox()
   assert(outbox and #outbox >= 1, "outbox should have publish event")
-  assert_eq(outbox[#outbox].manifestTx, "tx1", "outbox manifest matches")
+  assert_eq(outbox[#outbox].manifestTx, "tx1234567890", "outbox manifest matches")
 end
 
 -- New actions: inventory, price rule, revoke entitlement, grant role
@@ -87,7 +87,7 @@ do
     requestId = "rid-price-0001",
     nonce = "nonce-price-0001",
     signatureRef = "sigref-price-0001",
-    payload = { siteId = "s3", ruleId = "rule-1", formula = "price*0.9", active = true },
+    payload = { siteId = "s3", ruleId = "rule-1", formula = "price*0.9", active = true, currency = "USD", vatRate = 0.2 },
   }))
   assert_status(price, "OK", "price rule upsert")
   local grant = write.route(with_req({
@@ -121,7 +121,7 @@ do
   local refund = write.route(with_req({
     action = "IssueRefund",
     role = "support",
-    payload = { orderId = "o1", amount = 10.5, currency = "USD" },
+    payload = { orderId = "o1", amount = 10.5, currency = "USD", vatRate = 0.2 },
   }))
   assert_status(refund, "OK", "issue refund")
   local webhook = write.route(with_req({
@@ -129,6 +129,42 @@ do
     payload = { tenant = "t1", url = "https://example.com/hook", events = { "order.created" } },
   }))
   assert_status(webhook, "OK", "create webhook")
+
+  local pay = write.route(with_req({
+    action = "CreatePaymentIntent",
+    payload = { orderId = "o1", amount = 10.5, currency = "USD", provider = "gopay" },
+  }))
+  assert_status(pay, "OK", "create payment intent")
+  local cap = write.route(with_req({
+    action = "CapturePayment",
+    payload = { paymentId = pay.payload.paymentId },
+  }))
+  assert_status(cap, "OK", "capture payment")
+  -- Coupon apply/remove
+  local coup_apply = write.route(with_req({
+    action = "ApplyCoupon",
+    payload = { orderId = "o1", code = "WELCOME10" },
+  }))
+  -- coupon store is stubbed empty, expect error
+  assert_status(coup_apply, "ERROR", "apply coupon should fail without seed")
+
+  local ship = write.route(with_req({
+    action = "UpsertShipmentStatus",
+    payload = { shipmentId = "ship1", status = "shipped", tracking = "TRK", carrier = "DHL", orderId = "o1" },
+  }))
+  assert_status(ship, "OK", "shipment status")
+  local ret = write.route(with_req({
+    action = "UpsertReturnStatus",
+    payload = { returnId = "ret1", status = "approved", reason = "size", orderId = "o1" },
+  }))
+  assert_status(ret, "OK", "return status")
+
+  -- Provider webhook updates payment status
+  local webhook = write.route(with_req({
+    action = "ProviderWebhook",
+    payload = { provider = "gopay", paymentId = pay.payload.providerPaymentId or pay.payload.paymentId, status = "PAID" },
+  }))
+  assert_status(webhook, "OK", "provider webhook")
 end
 
 -- Unknown action

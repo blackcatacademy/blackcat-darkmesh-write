@@ -7,6 +7,14 @@ local audit = require("ao.shared.audit")
 local storage = require("ao.shared.storage")
 local bridge = require("ao.shared.bridge")
 local crypto = require("ao.shared.crypto")
+local gopay_ok, gopay = pcall(require, "ao.shared.gopay")
+local tax = require("ao.shared.tax")
+local function send_event(ev)
+  local ok, status = bridge.forward_event(ev)
+  if not ok then
+    storage.append("outbox_dlq", { event = ev, status = status, ts = os.time() })
+  end
+end
 local OUTBOX_PATH = os.getenv("WRITE_OUTBOX_PATH")
 local WAL_PATH = os.getenv("WRITE_WAL_PATH")
 local OUTBOX_HMAC_SECRET = os.getenv("OUTBOX_HMAC_SECRET")
@@ -37,7 +45,13 @@ local state = {
   price_rules = {},   -- siteId -> ruleId -> entry
   customers = {},     -- tenant -> customerId -> profile
   orders = {},        -- orderId -> status, reason
+  coupons = {},       -- code -> { type, value, currency, minOrder, expiresAt }
   webhooks = {},      -- tenant -> list of endpoints
+  payments = {},      -- paymentId -> {orderId, amount, currency, provider, status}
+  shipments = {},     -- shipmentId -> {status, tracking, carrier}
+  returns = {},       -- returnId -> {status, reason}
+  dlq = {},           -- dead-letter for outbox
+  inventory_reservations = {}, -- orderId -> { siteId=..., items = { {sku, qty} } }
 }
 local outbox = {}      -- emitted events for downstream (-ao bridge)
 
@@ -155,8 +169,10 @@ function handlers.UpsertPriceRule(cmd)
   state.price_rules[site][cmd.payload.ruleId] = {
     formula = cmd.payload.formula,
     active = cmd.payload.active ~= false,
+    currency = cmd.payload.currency,
+    vatRate = cmd.payload.vatRate,
   }
-  return ok(cmd.requestId, { ruleId = cmd.payload.ruleId })
+  return ok(cmd.requestId, { ruleId = cmd.payload.ruleId, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate })
 end
 
 function handlers.GrantRole(cmd)
@@ -192,11 +208,20 @@ function handlers.UpsertOrderStatus(cmd)
 end
 
 function handlers.IssueRefund(cmd)
+  local payment = state.payments[cmd.payload.orderId]
+  if payment and payment.provider == "gopay" and payment.providerPaymentId then
+    if gopay_ok then
+      gopay.refund(payment.providerPaymentId, cmd.payload.amount)
+    else
+      return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
+    end
+  end
   local ev = {
     type = "IssueRefund",
     orderId = cmd.payload.orderId,
     amount = cmd.payload.amount,
     currency = cmd.payload.currency,
+    vatRate = cmd.payload.vatRate,
     requestId = cmd.requestId,
   }
   if OUTBOX_HMAC_SECRET then
@@ -206,8 +231,333 @@ function handlers.IssueRefund(cmd)
   table.insert(outbox, ev)
   storage.append("outbox", ev)
   if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
-  bridge.forward_event(outbox[#outbox])
-  return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount })
+  send_event(outbox[#outbox])
+  return ok(cmd.requestId, { orderId = cmd.payload.orderId, amount = cmd.payload.amount, currency = cmd.payload.currency, vatRate = cmd.payload.vatRate })
+end
+
+-- Coupon helpers (very simplified)
+local function is_coupon_valid(code, order)
+  local c = state.coupons[code]
+  if not c then return false, "unknown_coupon" end
+  if c.expiresAt and c.expiresAt < os.time() then return false, "expired" end
+  if c.currency and order.currency and c.currency ~= order.currency then return false, "currency_mismatch" end
+  if c.minOrder and order.totalAmount and order.totalAmount < c.minOrder then return false, "min_order_not_met" end
+  return true
+end
+
+function handlers.ApplyCoupon(cmd)
+  local order = state.orders[cmd.payload.orderId]
+  if not order or not order.totalAmount then
+    return err(cmd.requestId, "NOT_FOUND", "order not found or no total")
+  end
+  local ok_coupon, reason = is_coupon_valid(cmd.payload.code, order)
+  if not ok_coupon then
+    return err(cmd.requestId, "INVALID_INPUT", reason)
+  end
+  local c = state.coupons[cmd.payload.code]
+  local discount = 0
+  if c.type == "percent" then
+    discount = order.totalAmount * (c.value or 0) / 100
+  else
+    discount = c.value or 0
+  end
+  local new_total = math.max(0, order.totalAmount - discount)
+  order.totalAmount = tax.round(new_total, os.getenv("CURRENCY_ROUND_MODE") or "half-up", 2)
+  order.coupon = cmd.payload.code
+  local ev = { type = "CouponApplied", orderId = cmd.payload.orderId, code = cmd.payload.code, discount = discount, requestId = cmd.requestId }
+  table.insert(outbox, ev); storage.append("outbox", ev); send_event(ev)
+  return ok(cmd.requestId, { orderId = cmd.payload.orderId, totalAmount = order.totalAmount, code = cmd.payload.code })
+end
+
+function handlers.RemoveCoupon(cmd)
+  local order = state.orders[cmd.payload.orderId]
+  if not order then return err(cmd.requestId, "NOT_FOUND", "order not found") end
+  order.coupon = nil
+  local ev = { type = "CouponRemoved", orderId = cmd.payload.orderId, requestId = cmd.requestId }
+  table.insert(outbox, ev); storage.append("outbox", ev); send_event(ev)
+  return ok(cmd.requestId, { orderId = cmd.payload.orderId })
+end
+
+function handlers.CreatePaymentIntent(cmd)
+  local provider = cmd.payload.provider or os.getenv("PAYMENT_PROVIDER") or "manual"
+  local pid = string.format("pay_%s", cmd.payload.orderId)
+  local providerPaymentId, gatewayUrl
+  local status = "requires_capture"
+  if provider == "gopay" then
+    if gopay_ok then
+      local pid_out, gw, state = gopay.create_payment({
+        orderId = cmd.payload.orderId,
+        amount = cmd.payload.amount,
+        currency = cmd.payload.currency,
+        returnUrl = cmd.payload.returnUrl,
+        description = cmd.payload.description,
+      })
+      providerPaymentId, gatewayUrl = pid_out, gw
+      if state == "CREATED" or state == "AUTHORIZED" then
+        status = "requires_capture"
+      elseif state == "PAID" then
+        status = "captured"
+      else
+        status = "pending"
+      end
+    else
+      status = "requires_capture"
+    end
+  end
+  state.payments[pid] = {
+    orderId = cmd.payload.orderId,
+    amount = cmd.payload.amount,
+    currency = cmd.payload.currency,
+    provider = provider,
+    status = status,
+    risk = (os.getenv("PAYMENT_RISK_REQUIRED") == "1") and "review" or "pass",
+    returnUrl = cmd.payload.returnUrl,
+    description = cmd.payload.description,
+    providerUrl = (provider == "gopay" and (os.getenv("GOPAY_GATEWAY_URL") or "https://gw.gopay.com")) or nil,
+    providerPaymentId = providerPaymentId,
+    gatewayUrl = gatewayUrl,
+  }
+  local ev = {
+    type = "PaymentIntentCreated",
+    paymentId = pid,
+    orderId = cmd.payload.orderId,
+    amount = cmd.payload.amount,
+    currency = cmd.payload.currency,
+    provider = provider,
+    risk = state.payments[pid].risk,
+    providerUrl = state.payments[pid].providerUrl,
+    providerPaymentId = providerPaymentId,
+    gatewayUrl = gatewayUrl,
+    requestId = cmd.requestId,
+  }
+  if OUTBOX_HMAC_SECRET then
+    local msg = table.concat({ pid, cmd.payload.orderId, tostring(cmd.payload.amount or ""), cmd.payload.currency or "" }, "|")
+    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
+  end
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  send_event(outbox[#outbox])
+  return ok(cmd.requestId, { paymentId = pid, provider = provider, status = status, providerPaymentId = providerPaymentId, gatewayUrl = gatewayUrl })
+end
+
+function handlers.CapturePayment(cmd)
+  local payment = state.payments[cmd.payload.paymentId]
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
+  if payment.status ~= "requires_capture" then
+    -- allow capture for pending/authorized/pending-provider
+    local allowed = { requires_capture = true, pending = true }
+    if not allowed[payment.status] then
+      return err(cmd.requestId, "INVALID_STATE", "payment not capturable", { status = payment.status })
+    end
+  end
+  if payment.provider == "gopay" and payment.providerPaymentId then
+    if gopay_ok then
+      local ok, perr = gopay.capture(payment.providerPaymentId)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+    else
+      return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
+    end
+  end
+  payment.status = "captured"
+  payment.capturedAt = cmd.timestamp
+  local ev = {
+    type = "PaymentCaptured",
+    paymentId = cmd.payload.paymentId,
+    orderId = payment.orderId,
+    amount = payment.amount,
+    currency = payment.currency,
+    requestId = cmd.requestId,
+  }
+  if OUTBOX_HMAC_SECRET then
+    local msg = table.concat({ cmd.payload.paymentId, payment.orderId, tostring(payment.amount or ""), payment.currency or "" }, "|")
+    ev.hmac = crypto.hmac_sha256_hex(msg, OUTBOX_HMAC_SECRET)
+  end
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  send_event(outbox[#outbox])
+  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "captured" })
+end
+
+function handlers.VoidPayment(cmd)
+  local payment = state.payments[cmd.payload.paymentId]
+  if not payment then
+    return err(cmd.requestId, "NOT_FOUND", "payment not found")
+  end
+  if payment.provider == "gopay" and payment.providerPaymentId then
+    if gopay_ok then
+      local ok, perr = gopay.void(payment.providerPaymentId, cmd.payload.reason)
+      if not ok then return err(cmd.requestId, "PROVIDER_ERROR", perr) end
+    else
+      return err(cmd.requestId, "PROVIDER_ERROR", "gopay module unavailable")
+    end
+  end
+  payment.status = "voided"
+  payment.voidedAt = cmd.timestamp
+  local ev = {
+    type = "PaymentVoided",
+    paymentId = cmd.payload.paymentId,
+    orderId = payment.orderId,
+    requestId = cmd.requestId,
+  }
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  send_event(outbox[#outbox])
+  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = "voided" })
+end
+
+function handlers.UpsertShipmentStatus(cmd)
+  state.shipments[cmd.payload.shipmentId] = {
+    status = cmd.payload.status,
+    tracking = cmd.payload.tracking,
+    carrier = cmd.payload.carrier,
+    orderId = cmd.payload.orderId,
+    updatedAt = cmd.timestamp,
+  }
+  -- release reservations when shipped/delivered
+  if cmd.payload.status == "shipped" or cmd.payload.status == "delivered" then
+    local res = state.inventory_reservations[cmd.payload.orderId]
+    if res and res.items then
+      for _, item in ipairs(res.items) do
+        state.inventory[res.siteId] = state.inventory[res.siteId] or {}
+        local inv = state.inventory[res.siteId][item.sku] or { quantity = 0 }
+        inv.quantity = math.max(0, inv.quantity - (item.qty or 0))
+        state.inventory[res.siteId][item.sku] = inv
+      end
+      res.released = true
+    end
+  end
+  local ev = {
+    type = "ShipmentUpdated",
+    shipmentId = cmd.payload.shipmentId,
+    orderId = cmd.payload.orderId,
+    status = cmd.payload.status,
+    tracking = cmd.payload.tracking,
+    carrier = cmd.payload.carrier,
+    requestId = cmd.requestId,
+  }
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  send_event(outbox[#outbox])
+  return ok(cmd.requestId, { shipmentId = cmd.payload.shipmentId, status = cmd.payload.status })
+end
+
+function handlers.UpsertReturnStatus(cmd)
+  state.returns[cmd.payload.returnId] = {
+    status = cmd.payload.status,
+    reason = cmd.payload.reason,
+    orderId = cmd.payload.orderId,
+    updatedAt = cmd.timestamp,
+  }
+  -- restock on approved/refunded returns
+  if cmd.payload.status == "approved" or cmd.payload.status == "refunded" then
+    local res = state.inventory_reservations[cmd.payload.orderId]
+    if res and res.items then
+      for _, item in ipairs(res.items) do
+        state.inventory[res.siteId] = state.inventory[res.siteId] or {}
+        local inv = state.inventory[res.siteId][item.sku] or { quantity = 0 }
+        inv.quantity = inv.quantity + (item.qty or 0)
+        state.inventory[res.siteId][item.sku] = inv
+      end
+    end
+  end
+  local ev = {
+    type = "ReturnUpdated",
+    returnId = cmd.payload.returnId,
+    orderId = cmd.payload.orderId,
+    status = cmd.payload.status,
+    reason = cmd.payload.reason,
+    requestId = cmd.requestId,
+  }
+  table.insert(outbox, ev)
+  storage.append("outbox", ev)
+  if OUTBOX_PATH then storage.persist(OUTBOX_PATH) end
+  send_event(outbox[#outbox])
+  return ok(cmd.requestId, { returnId = cmd.payload.returnId, status = cmd.payload.status })
+end
+
+function handlers.ProviderWebhook(cmd)
+  if cmd.payload.provider == "gopay" then
+    -- optional signature/basic verification if configured
+    local secret = os.getenv("GOPAY_WEBHOOK_SECRET")
+    if secret and cmd.payload.raw and cmd.payload.raw.body then
+      local sig = cmd.payload.raw.headers and (cmd.payload.raw.headers["X-GoPay-Signature"] or cmd.payload.raw.headers["GoPay-Signature"])
+      if not sig then return err(cmd.requestId, "UNAUTHORIZED", "missing_signature") end
+      local ok_sig = gopay_ok and gopay.verify_signature and gopay.verify_signature(cmd.payload.raw.body, sig, secret)
+      if not ok_sig then return err(cmd.requestId, "UNAUTHORIZED", "signature_invalid") end
+    end
+    if os.getenv("GOPAY_WEBHOOK_BASIC") == "1" and cmd.payload.raw and cmd.payload.raw.headers then
+      local auth = cmd.payload.raw.headers["Authorization"]
+      local decoded = gopay_ok and gopay.verify_basic and gopay.verify_basic(auth)
+      if not decoded then return err(cmd.requestId, "UNAUTHORIZED", "basic_invalid") end
+      local expected = (os.getenv("GOPAY_CLIENT_ID") or "") .. ":" .. (os.getenv("GOPAY_CLIENT_SECRET") or "")
+      if decoded ~= expected then return err(cmd.requestId, "UNAUTHORIZED", "basic_mismatch") end
+    end
+
+    -- risk signal
+    if cmd.payload.raw and cmd.payload.raw.risk then
+      local thresh = tonumber(os.getenv("GOPAY_RISK_THRESHOLD") or "70")
+      if tonumber(cmd.payload.raw.risk) and tonumber(cmd.payload.raw.risk) >= thresh then
+        cmd.payload.status = "RISK"
+      end
+    end
+    for pid, p in pairs(state.payments) do
+      if p.providerPaymentId == cmd.payload.paymentId or pid == cmd.payload.paymentId then
+        local status_map = {
+          PAID = "captured",
+          CHARGED = "captured",
+          AUTHORIZED = "requires_capture",
+          CREATED = "pending",
+          CANCELED = "voided",
+          REFUNDED = "refunded",
+          PARTIALLY_REFUNDED = "refunded",
+          RISK = "risk_review",
+        }
+        p.status = status_map[cmd.payload.status] or string.lower(cmd.payload.status)
+        p.updatedAt = cmd.timestamp
+        if p.orderId then
+          state.orders[p.orderId] = state.orders[p.orderId] or {}
+          local order_status_map = {
+            captured = "paid",
+            requires_capture = "pending",
+            voided = "cancelled",
+            refunded = "refunded",
+            pending = "pending",
+            risk_review = "risk_review",
+          }
+          state.orders[p.orderId].status = order_status_map[p.status] or state.orders[p.orderId].status
+        end
+        local ev = {
+          type = "PaymentStatusChanged",
+          paymentId = pid,
+          providerStatus = cmd.payload.status,
+          status = p.status,
+          requestId = cmd.requestId,
+        }
+        table.insert(outbox, ev)
+        storage.append("outbox", ev)
+        send_event(ev)
+        if p.orderId and state.orders[p.orderId] and state.orders[p.orderId].status then
+          local oev = {
+            type = "OrderStatusUpdated",
+            orderId = p.orderId,
+            status = state.orders[p.orderId].status,
+            requestId = cmd.requestId,
+          }
+          table.insert(outbox, oev)
+          storage.append("outbox", oev)
+          send_event(oev)
+        end
+        return ok(cmd.requestId, { paymentId = pid, status = p.status })
+      end
+    end
+  end
+  return err(cmd.requestId, "NOT_FOUND", "payment not tracked")
 end
 
 function handlers.CreateWebhook(cmd)

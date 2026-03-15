@@ -5,7 +5,7 @@ local deps = {
   { name = "luv", mod = "luv" },
   { name = "lsqlite3", mod = "lsqlite3" },
   { name = "openssl", mod = "openssl" },
-  { name = "sodium", mod = "sodium", optional = true },
+  { name = "sodium", mod = "sodium" },
 }
 
 local ok_all = true
