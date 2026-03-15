@@ -28,6 +28,11 @@ WantedBy=multi-user.target
 - Write maps provider payload to internal status and reuses ConfirmPayment when needed.
 - On success, a `PaymentStatusChanged` outbox event is emitted; downstream AO/resolver should update UI.
 
+## Carrier label/track hooks
+- `CreateShippingLabel` uses `CARRIER_LABEL_URL` env to build label link; fallback stub URL otherwise.
+- `UpdateShipmentTracking` can emit `trackingUrl` if `CARRIER_TRACK_URL` is set.
+- A stub generator is available: `scripts/bridge/carrier_label_stub.lua <shipmentId> [carrier] [service]` (prints label URL and tracking info).
+
 ## Key rotation SOP (ed25519)
 - Rotate every 90 days or on incident.
 - Generate new keypair; install pubkey at `WRITE_SIG_PUBLIC`; record `sha256sum` in vault.
