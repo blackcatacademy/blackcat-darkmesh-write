@@ -152,6 +152,26 @@ local function set_payment_status(pid, new_status, provider_status, req_id)
   end
 end
 
+function handlers.AddDisputeEvidence(cmd)
+  local payment = state.payments[cmd.payload.paymentId]
+  if not payment then return err(cmd.requestId, "NOT_FOUND", "payment not found") end
+  local pd = state.payment_disputes[cmd.payload.paymentId] or { status = payment.status, reason = payment.reason }
+  pd.evidence = cmd.payload.evidence or pd.evidence
+  if cmd.payload.status then pd.status = cmd.payload.status end
+  if cmd.payload.reason then pd.reason = cmd.payload.reason end
+  state.payment_disputes[cmd.payload.paymentId] = pd
+  if pd.status then set_payment_status(cmd.payload.paymentId, pd.status, "dispute_evidence", cmd.requestId) end
+  enqueue_event({
+    type = "PaymentDisputeEvidence",
+    paymentId = cmd.payload.paymentId,
+    provider = cmd.payload.provider,
+    status = pd.status,
+    reason = pd.reason,
+    requestId = cmd.requestId,
+  })
+  return ok(cmd.requestId, { paymentId = cmd.payload.paymentId, status = pd.status })
+end
+
 local function otp_rate_key(sub, tenant)
   return (tenant or "tenant") .. ":" .. (sub or "user")
 end

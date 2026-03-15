@@ -487,10 +487,25 @@
       "type": "object",
       "required": ["provider", "paymentId", "status"],
       "properties": {
-        "provider": { "type": "string", "enum": ["gopay"] },
+        "provider": { "type": "string", "enum": ["gopay", "stripe", "paypal"] },
         "paymentId": { "type": "string" },
         "status": { "type": "string" },
+        "eventType": { "type": "string" },
+        "reason": { "type": "string" },
+        "evidence": { "type": "object" },
         "raw": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "AddDisputeEvidence": {
+      "type": "object",
+      "required": ["paymentId", "provider", "evidence"],
+      "properties": {
+        "paymentId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "provider": { "type": "string", "enum": ["stripe", "paypal", "gopay"] },
+        "evidence": { "type": "object" },
+        "status": { "type": "string" },
+        "reason": { "type": "string" }
       },
       "additionalProperties": false
     },

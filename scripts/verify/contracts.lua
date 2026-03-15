@@ -206,6 +206,29 @@ do
   assert(st.orders["o-pp-dispute"].status == "disputed", "order marked disputed")
 end
 
+-- Manual dispute evidence attachment
+do
+  local pay = write.route(with_req({
+    action = "CreatePaymentIntent",
+    payload = { orderId = "o-evidence", amount = 33, currency = "USD", provider = "stripe" },
+  }))
+  assert_status(pay, "OK", "create payment for evidence")
+  local add_ev = write.route(with_req({
+    action = "AddDisputeEvidence",
+    payload = {
+      paymentId = pay.payload.paymentId,
+      provider = "stripe",
+      evidence = { file = "proof.pdf", note = "customer claim" },
+      status = "disputed",
+      reason = "fraud",
+    },
+  }))
+  assert_status(add_ev, "OK", "add evidence")
+  local st = write._state()
+  assert(st.payment_disputes[pay.payload.paymentId], "evidence recorded")
+  assert(st.payment_disputes[pay.payload.paymentId].evidence.file == "proof.pdf", "evidence file stored")
+end
+
 -- Cart / pricing / order creation
 do
   write.route(with_req({
